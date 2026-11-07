@@ -19,8 +19,11 @@ mkdir -p "$work/results" "$live"
 if [ "$mode" = fresh ]; then
     find "$live" -mindepth 1 -delete
 else
-    rsync -a --exclude=run.json --exclude='.*' "$live"/ "$work/results"/
+    rsync -a --exclude=run.json --exclude=job.log --exclude='.*' "$live"/ "$work/results"/
 fi
+# the job's own log, beside its results, so that a failure explains itself on the website
+exec > >(tee -a "$live/job.log") 2>&1
+echo "job: $kind ${pr:+#$pr }at $sha, $(date -u '+%F %T') UTC, on $(hostname)"
 
 run_json() {
     local title="" 
@@ -29,7 +32,7 @@ run_json() {
     mv "$live/.run.json" "$live/run.json"
 }
 copy() {
-    rsync -a --exclude='*.tmp' "$work/results"/ "$live"/ && run_json "$1"
+    rsync -a --exclude='*.tmp' --exclude=job.log "$work/results"/ "$live"/ && run_json "$1"
 }
 stop() {
     kill "${bench:-}" 2>/dev/null; wait "${bench:-}" 2>/dev/null
