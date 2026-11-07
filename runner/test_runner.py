@@ -101,6 +101,7 @@ class TestJob(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(self.run_json(), {"repository": "madsuite-org/MadNLP.jl", "pr": "7", "commit": self.sha, "title": "", "state": "finished"})
         self.assertTrue(os.path.exists(os.path.join(self.live, "m", "acopf_default.csv")))
+        self.assertIn(f"at {self.sha}", open(os.path.join(self.live, "job.log")).read())
 
     def test_keep_takes_over_and_fresh_throws_away(self):
         old = os.path.join(self.live, "m")
@@ -118,6 +119,7 @@ class TestJob(unittest.TestCase):
         rc = subprocess.run([os.path.join(HERE, "job.sh"), self.live, "b" * 40, "pr", "7"], env=self.env, capture_output=True).returncode
         self.assertNotEqual(rc, 0)
         self.assertEqual(self.run_json()["state"], "failed")
+        self.assertIn("job: pr #7", open(os.path.join(self.live, "job.log")).read())
 
     def test_stopped_job_keeps_what_it_did(self):
         p = subprocess.Popen([os.path.join(HERE, "job.sh"), self.live, self.sha, "master", ""], env=dict(self.env, FAKE_RUN="30"),
