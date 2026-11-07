@@ -29,6 +29,8 @@ function main(args)
         m = match(r"^--hsl=(.*)$", a)
         m === nothing || Pkg.develop(path = abspath(m[1]))
     end
+    # a fresh depot has no registry, and resolving needs one
+    isempty(Pkg.Registry.reachable_registries()) && Pkg.Registry.add("General")
     Pkg.resolve()
     Pkg.instantiate()
     Pkg.activate(joinpath(@__DIR__, "format"))
