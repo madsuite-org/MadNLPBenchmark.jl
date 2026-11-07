@@ -10,7 +10,8 @@ It benchmarks a MadNLP checkout given from outside. `setup.jl` links that checko
 `[sources]`, and the results record its commit. The problem packages that are not registered are
 pinned to a commit there, and the registered ones are bounded in `[compat]`, so that the instances
 and the software around MadNLP are the same from one run to the next. Widening a bound or moving a
-pin is a change to the benchmark itself. The website at https://madnlp.madsuite.org/benchmark/ is
+pin is a change to the benchmark itself. The MadNLP packages are bounded in `[compat]` to the series the harness is
+written for, so that a checkout of another series fails at setup. The website at https://madnlp.madsuite.org/benchmark/ is
 built from the results by [benchmark-report](https://github.com/madsuite-org/benchmark-report).
 
 The code of an earlier version of this repository is on the `legacy` branch.
