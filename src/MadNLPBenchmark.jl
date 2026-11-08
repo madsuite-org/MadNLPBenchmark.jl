@@ -221,7 +221,7 @@ function solve_case(
 end
 
 """
-    run_benchmark(solve_on, sets, configs; outdir, slots = [1], meta, meta_of, overwrite)
+    run_benchmark(solve_on, sets, configs; outdir, slots = [1], meta, meta_of, overwrite, claim)
 
 Solve every case of `sets` (`set => case names`) with every configuration of `configs`
 (names) and write `<outdir>/<set>_<config>.csv`, with a metadata file beside each.
@@ -236,10 +236,14 @@ interrupted run keeps its rows.
 - `meta`: extra fields for the metadata files; `meta_of(config)`: fields of one configuration.
 - `overwrite`: start the result files afresh. By default a case already present in a result
   file is skipped, so that an interrupted run is resumed by the same command.
+- `claim(set, case, configs)`: the configurations of a case this run should solve, asked just
+  before it is solved; by default all of them. When machines share a run, the coordinating
+  server answers, so that no two solve the same case.
 """
 function run_benchmark(
         solve_on, sets, configs; outdir::AbstractString, slots = [1], group = (set, case) -> case,
         meta = Dict{String, Any}(), meta_of = config -> Dict{String, Any}(), overwrite::Bool = false,
+        claim = (set, case, todo) -> todo,
     )
     mkpath(outdir)
     file(set, config) = joinpath(outdir, "$(set)_$(config).csv")
@@ -289,6 +293,9 @@ function run_benchmark(
     written = ReentrantLock()
     @sync for slot in slots
         @async for tasks in queue, (set, case, todo) in tasks
+            # when several machines share the run, only what no other one has taken
+            todo = claim(set, case, todo)
+            isempty(todo) && continue
             results = try
                 solve_on(slot, set, case, todo)
             catch err   # the process failed, not the solver

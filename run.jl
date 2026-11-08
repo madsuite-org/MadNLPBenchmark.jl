@@ -295,6 +295,27 @@ function restart(slot, chosen, options)
     return
 end
 
+# When several machines share a run, a server hands out the cases: before solving a case, ask it
+# which configurations of it are still to do. BENCHMARK_CLAIM is its address, BENCHMARK_AUTH a file
+# with the authorization header and BENCHMARK_NODE the name of this machine (see runner/publish.sh).
+# If the server cannot be reached the case is solved anyway: a case solved twice costs time, not results.
+function server_claim(set, case, todo)
+    url = get(ENV, "BENCHMARK_CLAIM", "")
+    isempty(url) && return todo
+    body = "{\"node\":\"$(ENV["BENCHMARK_NODE"])\",\"device\":\"$DEVICE\",\"set\":\"$set\",\"case\":\"$case\",\"configs\":[" *
+        join(("\"$c\"" for c in todo), ",") * "]}"
+    out = try
+        read(`curl -sS -m 60 -H @$(ENV["BENCHMARK_AUTH"]) -H "Content-Type: application/json" --data-binary $body $url`, String)
+    catch err
+        @warn "$case: the server could not be asked, solving it" exception = err
+        return todo
+    end
+    m = match(r"\"todo\":\s*\[(.*?)\]", out)
+    m === nothing && (@warn "$case: unexpected answer from the server: $(first(out, 200))"; return todo)
+    granted = Set(x[1] for x in eachmatch(r"\"([^\"]+)\"", m[1]))
+    return [c for c in todo if c in granted]
+end
+
 function main()
     available = first.(configs(DEVICE))
     chosen = isempty(CUSTOM_OPTIONS) ? String.(split(OPT["config"], ",")) : [custom_name(CUSTOM_OPTIONS)]
@@ -373,6 +394,7 @@ function main()
     end
     run_benchmark(
         sets, chosen; outdir, slots, meta, overwrite = "overwrite" in FLAGS, group = instance_group,
+        claim = server_claim,
         meta_of = config -> Dict{String, Any}(
             "config_options" => string(config_options[config]),
             (startswith(config, "custom-") ? ("custom_options" => normalized_options(CUSTOM_OPTIONS),) : ())...,
