@@ -18,4 +18,7 @@ madnlp = ["acceptable_iter", "acceptable_tol", "alpha_min_frac", "barrier", "bar
     MumpsSolver = ["mumps_mem_percent", "mumps_permuting_scaling", "mumps_pivot_order", "mumps_pivtol", "mumps_pivtolmax", "mumps_scaling"]
 
 [values]
+character = ["cudss_pivot_type"]
 names = ["CHOLESKY", "CHOLMODSolver", "CUDSSSolver", "DualInitializeLeastSquares", "DualInitializeSetZero", "EnforceEquality", "LDL", "LU", "Ma27Solver", "Ma57Solver", "MakeParameter", "MumpsSolver", "RelaxBound", "RelaxEquality", "SparseCondensedKKTSystem", "SparseKKTSystem", "SparseUnreducedKKTSystem"]
+refused = ["output_file"]
+word = ["cudss_factorization_alg", "cudss_matching_alg", "cudss_reordering_alg", "cudss_solve_alg"]

@@ -92,6 +92,9 @@ or a solve has run for the wall limit plus a margin (`--margin`, by default the 
 120 s and 20% of the limit), records the instance with status `-100`, and starts a new worker. A worker that passes 40% of
 the machine's memory during a solve is treated the same way.
 
+**Log.** Everything a run prints, package compilation and worker output included, also goes to
+`run.log` in the result root as it is printed.
+
 **Status.** Every ten minutes the log gives the instances done and, per worker, the instance,
 its state (`building`, `waiting` for a GPU, `solving`, `working`) and for how long, longest
 first, with its memory, followed by the solved counts and mean times so far. The same report
@@ -102,13 +105,15 @@ workers solve the sets ahead of CUTEst, so list `cutest` last. The decoded files
 CUTEst.jl's directory for later runs.
 
 **Options.** `--options` takes `name=value` pairs, separated by commas, and runs them on top of
-the `default` configuration of the device. Values are read as literals and never evaluated:
-integers, floats, `true`/`false`, a character in single quotes, a word in double quotes, or a
-name from `OPTION_VALUES` in `configs.jl` (KKT systems, linear solvers, treatments). Unknown
-option names are refused. `configs.toml` lists the configuration names per device, the option names and the
-names allowed as values, for checking a job without Julia; `configs_toml.jl` rewrites it and
-checks that it is up to date. The results go under the configuration `custom-<8 hex digits>`, from
-the options in sorted order, and the metadata records them as `custom_options`.
+the `default` configuration of the device. Values are read as literals, never evaluated, and are
+never quoted: an integer, a float, `true` or `false`, a name from `OPTION_VALUES` in `configs.jl`
+(KKT systems, linear solvers, treatments), or a bare word of letters, digits, `_`, `.` and `-` for
+an option whose declared type is a string or a character. Unknown option names are refused, and
+so are the options that name files. The results go under the configuration
+`custom-<8 hex digits>`, from the options in sorted order, and the metadata records them as
+`custom_options`. `configs.toml` lists the configuration names per device, the option names and
+the values allowed, for checking a job without Julia; `configs_toml.jl` rewrites it and checks
+that it is up to date.
 
 ## Protocol
 

@@ -88,8 +88,9 @@ end
 # MadNLP ignores an option it does not know, so a mistyped option would measure the default
 # under the name of the configuration.
 # Options given as text, `name=value,...`, as from `run.jl --options`. Only literals are read,
-# never evaluated: integers, floats, booleans, a character in single quotes, a word in double
-# quotes, or one of the names in OPTION_VALUES.
+# never evaluated, and no value is quoted: an integer, a float, `true` or `false`, a name in
+# OPTION_VALUES, or a bare word (letters, digits, `_`, `.`, `-`) for an option whose declared type
+# is a string or a character. Options that name files are refused, since the benchmark sets them.
 const OPTION_VALUES = Dict{String, Function}(
     "SparseKKTSystem" => () -> MadNLP.SparseKKTSystem, "SparseCondensedKKTSystem" => () -> MadNLP.SparseCondensedKKTSystem,
     "SparseUnreducedKKTSystem" => () -> MadNLP.SparseUnreducedKKTSystem,
@@ -102,22 +103,44 @@ const OPTION_VALUES = Dict{String, Function}(
     "DualInitializeLeastSquares" => () -> MadNLP.DualInitializeLeastSquares,
     "LDL" => () -> MadNLP.LDL, "CHOLESKY" => () -> MadNLP.CHOLESKY, "LU" => () -> MadNLP.LU,
 )
+const REFUSED_OPTIONS = (:output_file,)
 
-function option_value(text)
+# The declared type of an option, from MadNLP's options or those of a linear solver it lists.
+function option_type(name::Symbol)
+    hasfield(MadNLP.MadNLPOptions{Float64}, name) && return fieldtype(MadNLP.MadNLPOptions{Float64}, name)
+    for value in values(OPTION_VALUES)
+        type = try
+            value()
+        catch   # a solver of a package this process has not loaded, such as cuMadNLP on the host
+            continue
+        end
+        type isa Type && hasmethod(MadNLP.default_options, Tuple{Type{type}}) || continue
+        options = typeof(MadNLP.default_options(type))
+        hasfield(options, name) && return fieldtype(options, name)
+    end
+    return Nothing
+end
+
+function option_value(name::Symbol, text)
     occursin(r"^-?[0-9]+$", text) && return parse(Int, text)
     occursin(r"^-?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$", text) && return parse(Float64, text)
     text in ("true", "false") && return text == "true"
-    (m = match(r"^'(.)'$", text)) === nothing || return only(m[1])
-    (m = match(r"^\"([A-Za-z0-9_.-]*)\"$", text)) === nothing || return String(m[1])
     haskey(OPTION_VALUES, text) && return OPTION_VALUES[text]()
-    return error("option value $text is not a literal or a known name")
+    if occursin(r"^[A-Za-z0-9_.-]+$", text)
+        type = option_type(name)
+        type <: AbstractString && return String(text)
+        type <: AbstractChar && length(text) == 1 && return only(text)
+    end
+    return error("option $name=$text: not a number, a boolean, a known name, or a word for a text option")
 end
 
 function parse_options(text)
     pairs = map(split(text, ","; keepempty = false)) do item
         m = match(r"^\s*([a-z_][a-z0-9_]*)\s*=\s*(\S+)\s*$", item)
         m === nothing && error("option $item is not name=value")
-        Symbol(m[1]) => option_value(m[2])
+        name = Symbol(m[1])
+        name in REFUSED_OPTIONS && error("option $name is set by the benchmark")
+        name => option_value(name, m[2])
     end
     allunique(first.(pairs)) || error("an option is given twice in $text")
     return (; pairs...)

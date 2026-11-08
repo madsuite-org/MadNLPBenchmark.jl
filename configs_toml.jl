@@ -8,6 +8,16 @@ using MadNLP, HSL, NLPModels, NLPModelsIpopt, cuMadNLP, SHA, TOML
 
 include(joinpath(@__DIR__, "configs.jl"))
 
+function all_options()
+    names = collect(fieldnames(MadNLP.MadNLPOptions))
+    for value in values(OPTION_VALUES)
+        type = value()
+        type isa Type && hasmethod(MadNLP.default_options, Tuple{Type{type}}) || continue
+        append!(names, fieldnames(typeof(MadNLP.default_options(type))))
+    end
+    return unique!(names)
+end
+
 function listing()
     names(device; hsl) = first.(configs(device; hsl))
     cpu, cpu_without = names(:cpu; hsl = true), names(:cpu; hsl = false)
@@ -27,7 +37,13 @@ function listing()
             "madnlp" => sort!(string.(collect(fieldnames(MadNLP.MadNLPOptions)))),
             "linear_solver" => solvers,
         ),
-        "values" => Dict("names" => sort!(collect(keys(OPTION_VALUES)))),
+        "values" => Dict(
+            "names" => sort!(collect(keys(OPTION_VALUES))),
+            # options that take a bare word, by declared type
+            "word" => sort!([string(n) for n in all_options() if option_type(n) <: AbstractString && !(n in REFUSED_OPTIONS)]),
+            "character" => sort!([string(n) for n in all_options() if option_type(n) <: AbstractChar]),
+            "refused" => sort!(string.(collect(REFUSED_OPTIONS))),
+        ),
     )
 end
 
