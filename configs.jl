@@ -100,6 +100,8 @@ function configs(device::Symbol; hsl::Bool = HSL.LIBHSL_isfunctional())
         )
         push!(c, "shifted" => SHIFTED_CUDA)
         push!(c, "shifted_qf" => (; SHIFTED_CUDA..., ADAPTIVE...))
+        # the same with the barrier floored at tol / (barrier_tol_factor + 1) (tol = 1e-8)
+        push!(c, "shifted_qf_mu9" => (; SHIFTED_CUDA..., ADAPTIVE..., barrier = MadNLP.QualityFunctionUpdate{Float64}(sigma_max = 2.0, mu_min = 1.0e-8 / 11)))
     end
     # options from the command line, on top of the default configuration
     isdefined(Main, :CUSTOM_OPTIONS) && !isempty(Main.CUSTOM_OPTIONS) &&
