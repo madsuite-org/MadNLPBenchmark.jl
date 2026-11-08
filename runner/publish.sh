@@ -21,9 +21,9 @@
 # where it left off. The work directory (default ./benchmark-work/job<N>-<batch job or host>) holds
 # the clone, the Julia depot (a few GB) and the node's results. On a cluster, give the nodes one
 # --depot and one --src on a shared file system: the depot holds the installed and compiled
-# packages, --src the checkout of each commit set up with this harness, made by the first node
-# while the others wait. Nodes then install and compile once, and a later job reuses what an
-# earlier one compiled. --hsl is a licensed HSL_jll for
+# packages (and what is compiled, per kind of processor), --src the checkout of each commit set up
+# with this harness, made by the first node while the others wait. Nodes then install once and
+# compile once per kind of processor, and a later job reuses what an earlier one compiled. --hsl is a licensed HSL_jll for
 # MA57 on the host; without it the host uses MUMPS. The node uses what it is given: on a cluster,
 # the batch job's cores, and 2 workers per GPU it sees.
 set -u
@@ -128,12 +128,20 @@ tree=$(cd "$src" && pwd)/${sha:0:12}-$version
         git clone -q https://github.com/madsuite-org/MadNLP.jl "$tree/madnlp" && git -C "$tree/madnlp" checkout -q --detach "$sha" || exit 3
         cp -a "$here" "$tree/harness" && rm -rf "$tree/harness/.git" "$tree/harness/madnlp" "$tree/harness/.claude" "$tree/harness/results" || exit 3
         (cd "$tree/harness" && julia --startup-file=no setup.jl "$tree/madnlp" ${hsl:+--hsl=$hsl}) || exit 4
-        # compile everything once, here, rather than in every node's workers at once
-        (cd "$tree/harness" && julia --startup-file=no --project=. -e 'using Pkg; Pkg.precompile()') || exit 4
         touch "$tree/.ready"
     fi
 ) 9> "$tree.lock" || { send failed; exit 4; }
 cd "$tree/harness"
+# Julia compiles packages for the processor it runs on, so nodes of different processors sharing a
+# depot would keep recompiling over each other: each kind of processor has a depot of its own in
+# front of the shared one, for what it compiles, and compiles once, one node at a time.
+cpu=$(sed -n 's/^model name[[:space:]]*: //p' /proc/cpuinfo | head -1 | tr -c 'A-Za-z0-9\n' '_' | tr -s '_' | cut -c1-60)
+mkdir -p "$depot/by-cpu/${cpu:-unknown}"
+export JULIA_DEPOT_PATH="$(readlink -f "$depot/by-cpu/${cpu:-unknown}"):$(readlink -f "$depot")"
+(
+    flock 9 || exit 3
+    julia --startup-file=no --project=. -e 'using Pkg; Pkg.precompile()' || exit 4
+) 9> "$depot/by-cpu/${cpu:-unknown}.lock" || { send failed; exit 4; }
 export BENCHMARK_CLAIM=$api/claim BENCHMARK_AUTH=$auth BENCHMARK_NODE=$node
 julia --startup-file=no --project=. run.jl "${sets:-acopf,cops,mittelmann,cutest}" --device="$devices" --config="$config" \
     ${options:+"--options=$options"} --root="$work/results" < /dev/null &
