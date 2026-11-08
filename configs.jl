@@ -20,6 +20,9 @@ const SHIFTED = (;
 )
 const SHIFTED_CPU = (; SHIFTED..., linear_solver = MadNLP.CHOLMODSolver, cholmod_algorithm = MadNLP.LDL, cholmod_dbound = 1.0e-10)
 const SHIFTED_CUDA = SHIFTED
+# The same with the quality-function (adaptive) barrier, its increases of mu capped at a factor of 2,
+# and the slacks moved onto the constraints after an accepted step when every row holds
+const ADAPTIVE = (; barrier = MadNLP.QualityFunctionUpdate{Float64}(sigma_max = 2.0, mu_min = 1.0e-11), slack_reset = true)
 
 # Ipopt as a baseline, with its default MUMPS. Returns the fields of MadNLP's statistics that a
 # result row reads, so that it goes through the same loop. Ipopt reports no time breakdown,
@@ -79,6 +82,7 @@ function configs(device::Symbol; hsl::Bool = HSL.LIBHSL_isfunctional())
         push!(c, "ipopt" => (; solver = run_ipopt))
         push!(c, "condensed_cholmod" => (; CONDENSED..., linear_solver = MadNLP.CHOLMODSolver))
         push!(c, "shifted" => SHIFTED_CPU)
+        push!(c, "shifted_qf" => (; SHIFTED_CPU..., ADAPTIVE...))
         if hsl   # the registry's HSL_jll carries no solver
             push!(c, "augmented_ma27" => (; linear_solver = MadNLP.Ma27Solver))
             push!(c, "augmented_ma57" => ma57)
@@ -95,6 +99,7 @@ function configs(device::Symbol; hsl::Bool = HSL.LIBHSL_isfunctional())
             ),
         )
         push!(c, "shifted" => SHIFTED_CUDA)
+        push!(c, "shifted_qf" => (; SHIFTED_CUDA..., ADAPTIVE...))
     end
     # options from the command line, on top of the default configuration
     isdefined(Main, :CUSTOM_OPTIONS) && !isempty(Main.CUSTOM_OPTIONS) &&
