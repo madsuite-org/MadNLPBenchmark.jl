@@ -9,6 +9,7 @@ using MadNLP, HSL, ExaModels, ExaModelsPower, COPSBenchmark, ExaMittelmann, NLPM
 DEVICE == :cuda && @eval using CUDA, cuMadNLP
 
 include(joinpath(@__DIR__, "sets.jl"))
+include(joinpath(@__DIR__, "experimental", "shifted_ldl.jl"))
 include(joinpath(@__DIR__, "configs.jl"))
 using MadNLPBenchmark
 

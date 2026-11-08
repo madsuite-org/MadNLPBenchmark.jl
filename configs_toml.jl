@@ -6,6 +6,7 @@
 
 using MadNLP, HSL, NLPModels, NLPModelsIpopt, cuMadNLP, SHA, TOML
 
+include(joinpath(@__DIR__, "experimental", "shifted_ldl.jl"))
 include(joinpath(@__DIR__, "configs.jl"))
 
 function all_options()

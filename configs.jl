@@ -106,6 +106,7 @@ const OPTION_VALUES = Dict{String, Function}(
     "RelaxBound" => () -> MadNLP.RelaxBound, "MakeParameter" => () -> MadNLP.MakeParameter,
     "DualInitializeSetZero" => () -> MadNLP.DualInitializeSetZero,
     "DualInitializeLeastSquares" => () -> MadNLP.DualInitializeLeastSquares,
+    "ShiftedLDL" => () -> Main.ShiftedLDLExperiment.ShiftedLDL,
     "LDL" => () -> MadNLP.LDL, "CHOLESKY" => () -> MadNLP.CHOLESKY, "LU" => () -> MadNLP.LU,
 )
 const REFUSED_OPTIONS = (:output_file,)
