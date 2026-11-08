@@ -4,7 +4,7 @@
 #     julia --project=. configs_toml.jl           # check that configs.toml is up to date
 #     julia --project=. configs_toml.jl --write   # rewrite it
 
-using MadNLP, HSL, NLPModels, NLPModelsIpopt, cuMadNLP, SHA, TOML
+using MadNLP, HSL, NLPModels, NLPModelsIpopt, cuMadNLP, Krylov, SHA, TOML
 
 include(joinpath(@__DIR__, "configs.jl"))
 

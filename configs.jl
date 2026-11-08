@@ -11,6 +11,16 @@ const CONDENSED = (;
     dual_initialization_method = MadNLP.DualInitializeSetZero,
 )
 
+# The augmented system factorized after Ruiz scaling and a dual shift, with small pivots bounded,
+# and refined by GMRES on the unshifted system: CHOLMOD's LDL' on the host, cuDSS on a CUDA device
+# (cuMadNLP's own options for this system: LDL', matching, deferred analysis).
+const SHIFTED = (;
+    kkt_system = MadNLP.SparseKKTSystem, kkt_scaler = MadNLP.RuizScaler(), dual_shift = 1.0e-10,
+    iterator = MadNLP.KrylovIterator,
+)
+const SHIFTED_CPU = (; SHIFTED..., linear_solver = MadNLP.CHOLMODSolver, cholmod_algorithm = MadNLP.LDL, cholmod_dbound = 1.0e-10)
+const SHIFTED_CUDA = SHIFTED
+
 # Ipopt as a baseline, with its default MUMPS. Returns the fields of MadNLP's statistics that a
 # result row reads, so that it goes through the same loop. Ipopt reports no time breakdown,
 # factorization count or refinement count.
@@ -68,6 +78,7 @@ function configs(device::Symbol; hsl::Bool = HSL.LIBHSL_isfunctional())
         push!(c, "augmented_mumps" => (; linear_solver = MadNLP.MumpsSolver))
         push!(c, "ipopt" => (; solver = run_ipopt))
         push!(c, "condensed_cholmod" => (; CONDENSED..., linear_solver = MadNLP.CHOLMODSolver))
+        push!(c, "shifted" => SHIFTED_CPU)
         if hsl   # the registry's HSL_jll carries no solver
             push!(c, "augmented_ma27" => (; linear_solver = MadNLP.Ma27Solver))
             push!(c, "augmented_ma57" => ma57)
@@ -83,6 +94,7 @@ function configs(device::Symbol; hsl::Bool = HSL.LIBHSL_isfunctional())
                 cudss_deferred_analysis = true, cudss_refactorization = false, cudss_reanalyze_on_improve = true,
             ),
         )
+        push!(c, "shifted" => SHIFTED_CUDA)
     end
     # options from the command line, on top of the default configuration
     isdefined(Main, :CUSTOM_OPTIONS) && !isempty(Main.CUSTOM_OPTIONS) &&

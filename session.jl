@@ -4,6 +4,8 @@
 
 using SHA
 using MadNLP, HSL, ExaModels, ExaModelsPower, COPSBenchmark, ExaMittelmann, NLPModels, NLPModelsIpopt
+# GMRES refinement (KrylovIterator) of the shifted configurations
+using Krylov
 # CUTEst: the compiled SIF decoders of CUTEst.jl on the host, ExaCUTEst models on a device
 "cutest" in SET_NAMES && (DEVICE == :cuda ? (@eval using ExaCUTEst) : (@eval using CUTEst))
 DEVICE == :cuda && @eval using CUDA, cuMadNLP
