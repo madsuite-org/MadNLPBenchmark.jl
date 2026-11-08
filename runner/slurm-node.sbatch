@@ -17,5 +17,5 @@
 set -eu
 here=${SLURM_SUBMIT_DIR:-$PWD}
 exec "$here/runner/publish.sh" run --job-file="${JOB_FILE:?set JOB_FILE}" \
-    --depot="${BENCHMARK_DEPOT:-$here/benchmark-depot}" --work="$here/benchmark-work/$(basename "$JOB_FILE")-$SLURM_JOB_ID" \
+    --depot="${BENCHMARK_DEPOT:-$here/benchmark-depot}" --src="${BENCHMARK_SRC:-$here/benchmark-src}" --work="$here/benchmark-work/$(basename "$JOB_FILE")-$SLURM_JOB_ID" \
     ${BENCHMARK_HSL:+--hsl=$BENCHMARK_HSL}

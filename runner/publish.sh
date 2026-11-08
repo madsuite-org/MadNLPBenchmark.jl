@@ -4,7 +4,7 @@
 #
 #     runner/publish.sh new [master|PR-NUMBER|BRANCH|COMMIT] [--devices=cpu|cuda|cpu,cuda] [--config=NAME]
 #                           [--options=name=value,...] [--sets=acopf,cops,...] [--job-file=PATH]
-#     runner/publish.sh run --job-file=PATH [--hsl=PATH] [--work=DIR] [--depot=DIR] [--every=SECONDS]
+#     runner/publish.sh run --job-file=PATH [--hsl=PATH] [--work=DIR] [--depot=DIR] [--src=DIR] [--every=SECONDS]
 #
 # `new` asks the website for a job, with a GitHub token of someone with write access to MadNLP.jl
 # (BENCHMARK_TOKEN, or `gh auth token`), and writes the job's number and its own token to the job
@@ -19,20 +19,23 @@
 # Stopping is safe at any time (a batch job preempted, say): the instances a stopped node held go
 # to the others after 10 minutes, and running it again with the same work directory carries on
 # where it left off. The work directory (default ./benchmark-work/job<N>-<batch job or host>) holds
-# the clone, the Julia depot (a few GB; --depot shares one between the nodes of a cluster, which
-# then install and compile once) and the node's results. --hsl is a licensed HSL_jll for
+# the clone, the Julia depot (a few GB) and the node's results. On a cluster, give the nodes one
+# --depot and one --src on a shared file system: the depot holds the installed and compiled
+# packages, --src the checkout of each commit set up with this harness, made by the first node
+# while the others wait. Nodes then install and compile once, and a later job reuses what an
+# earlier one compiled. --hsl is a licensed HSL_jll for
 # MA57 on the host; without it the host uses MUMPS. The node uses what it is given: on a cluster,
 # the batch job's cores, and 2 workers per GPU it sees.
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 site=${BENCHMARK_SITE:-https://benchmark.madsuite.org}
 cmd=${1:-}; shift || true
-what=master devices=cpu,cuda config=default options="" sets="" jobfile="" hsl="" work="" depot="" every=15
+what=master devices=cpu,cuda config=default options="" sets="" jobfile="" hsl="" work="" depot="" src="" every=15
 for a in "$@"; do
     case "$a" in
         --devices=*) devices=${a#*=} ;; --config=*) config=${a#*=} ;; --options=*) options=${a#*=} ;;
         --sets=*) sets=${a#*=} ;; --job-file=*) jobfile=${a#*=} ;; --hsl=*) hsl=$(cd "${a#*=}" && pwd) ;;
-        --work=*) work=${a#*=} ;; --depot=*) depot=${a#*=} ;; --every=*) every=${a#*=} ;;
+        --work=*) work=${a#*=} ;; --depot=*) depot=${a#*=} ;; --src=*) src=${a#*=} ;; --every=*) every=${a#*=} ;;
         --*) echo "publish: unknown option $a" >&2; exit 2 ;;
         *) what=$a ;;
     esac
@@ -110,13 +113,27 @@ send() {   # state
     [[ $out == *'"cancel": true'* ]]
 }
 
-if [ -d "$work/madnlp/.git" ]; then git -C "$work/madnlp" fetch -q origin || exit 3
-else git clone -q https://github.com/madsuite-org/MadNLP.jl "$work/madnlp" || exit 3; fi
-git -C "$work/madnlp" checkout -q --detach "$sha" || exit 3
-rm -rf "$work/harness" && cp -a "$here" "$work/harness" && rm -rf "$work/harness/.git" "$work/harness/madnlp" "$work/harness/.claude" || exit 3
-cd "$work/harness"
+# the commit, set up with this harness, in a folder named by both: the same path on every node and
+# in every later job, so that what Julia compiled for it is found again. The first node sets it up,
+# under a lock; the others wait and use it.
 export JULIA_DEPOT_PATH="$(readlink -f "$depot")"
-julia --startup-file=no setup.jl "$work/madnlp" ${hsl:+--hsl=$hsl} || { send failed; exit 4; }
+version=$( (cd "$here" && git rev-parse --short=12 HEAD 2>/dev/null) || find "$here" -name '*.jl' -o -name '*.toml' | sort | xargs cat | sha1sum | cut -c1-12)
+src=${src:-$work}
+mkdir -p "$src"
+tree=$(cd "$src" && pwd)/${sha:0:12}-$version
+(
+    flock 9 || exit 3
+    if [ ! -e "$tree/.ready" ]; then
+        rm -rf "$tree" && mkdir -p "$tree" || exit 3
+        git clone -q https://github.com/madsuite-org/MadNLP.jl "$tree/madnlp" && git -C "$tree/madnlp" checkout -q --detach "$sha" || exit 3
+        cp -a "$here" "$tree/harness" && rm -rf "$tree/harness/.git" "$tree/harness/madnlp" "$tree/harness/.claude" "$tree/harness/results" || exit 3
+        (cd "$tree/harness" && julia --startup-file=no setup.jl "$tree/madnlp" ${hsl:+--hsl=$hsl}) || exit 4
+        # compile everything once, here, rather than in every node's workers at once
+        (cd "$tree/harness" && julia --startup-file=no --project=. -e 'using Pkg; Pkg.precompile()') || exit 4
+        touch "$tree/.ready"
+    fi
+) 9> "$tree.lock" || { send failed; exit 4; }
+cd "$tree/harness"
 export BENCHMARK_CLAIM=$api/claim BENCHMARK_AUTH=$auth BENCHMARK_NODE=$node
 julia --startup-file=no --project=. run.jl "${sets:-acopf,cops,mittelmann,cutest}" --device="$devices" --config="$config" \
     ${options:+"--options=$options"} --root="$work/results" < /dev/null &
