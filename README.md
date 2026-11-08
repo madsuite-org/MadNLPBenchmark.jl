@@ -184,6 +184,17 @@ on a cluster or a rented machine, can be shown there too, by anyone with write a
 MadNLP.jl:
 
 ```sh
+curl -fsSL https://benchmark.madsuite.org/queue/run.sh | bash -s -- my-experiment master --devices=cuda
+```
+
+This gets this repository and runs [`runner/publish.sh`](runner/publish.sh), which benchmarks the
+given revision of MadNLP.jl on that machine and uploads the results every few minutes while it runs,
+to `https://benchmark.madsuite.org/madnlp/run-up-my-experiment/`. It needs julia, git and a GitHub
+token (`gh auth login`, or `BENCHMARK_TOKEN`); `runner/publish.sh` lists its options (sets,
+configuration, a licensed HSL with `--hsl`, the work directory). Run CPU and GPU as two runs with
+their own names; on a cluster, run it inside a batch job. By hand, the same is:
+
+```sh
 julia setup.jl ../MadNLP.jl
 julia --project=. run.jl acopf,cops --device=cuda --root=results
 tar czf results.tar.gz -C results .
