@@ -201,7 +201,7 @@ report, which appears on its dashboard like any other job. Two steps:
 2. **Run it on as many machines as you like**, at once or later, with only the job file:
 
    ```sh
-   runner/publish.sh run --job-file=benchmark-job-57 [--hsl=PATH] [--depot=DIR] [--work=DIR]
+   runner/publish.sh run --job-file=benchmark-job-57 [--hsl=PATH] [--depot=DIR] [--src=DIR] [--work=DIR]
    ```
 
    Each machine (a *node*) takes the job's settings from the website, sets up that commit, and before
@@ -230,9 +230,11 @@ A typical request is "benchmark this pull request with these options". From the 
    machine of each instance and marks times that come from different machines.
 5. Preemptible partitions are fine. Use `--requeue`: a node stopped and started again with the same
    work directory is the same node and carries on, and the instances it held go to the others after 10
-   minutes. Share one `--depot` between the nodes of a cluster, so that packages are installed and
-   compiled once.
-6. Follow the job on the website's dashboard, or with the API: `GET /queue/api/jobs/<number>` (with
+   minutes.
+6. Give all nodes one `--depot` and one `--src` on the cluster's shared file system, and keep them
+   between jobs. The first node of a commit sets it up and compiles it there while the others wait;
+   every other node, and every later job of that commit, reuses what was installed and compiled.
+7. Follow the job on the website's dashboard, or with the API: `GET /queue/api/jobs/<number>` (with
    a GitHub token) gives its state and nodes. Cancelling it there stops every node at its next
    request. The job ends when every node still running has finished.
 
