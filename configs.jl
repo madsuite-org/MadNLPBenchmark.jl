@@ -39,7 +39,12 @@ function run_ipopt(m; tol, acceptable_tol, max_wall_time, output_file = "", _...
     solver = HSL.LIBHSL_isfunctional() ?
         (; linear_solver = "ma57", hsllib = HSL.HSL_jll.libhsl_path, ma57_automatic_scaling = "yes") : (;)
     log = isempty(output_file) ? (;) : (; output_file, file_print_level = 5)
-    s = NLPModelsIpopt.ipopt(m; tol, acceptable_tol, max_wall_time, print_level = 0, solver..., log...)
+    # MadNLP stops at the acceptable level on its scaled error alone, and here acceptable_tol is tol,
+    # so its acceptable exit is no looser than its converged one. Ipopt's acceptable exit also has
+    # its own limits on the unscaled violations, looser by default (constraints and complementarity
+    # 1e-2, dual 1e10); they are set to those of its converged exit, so that it is no looser either.
+    acceptable = (; acceptable_constr_viol_tol = 1e-4, acceptable_dual_inf_tol = 1.0, acceptable_compl_inf_tol = 1e-4)
+    s = NLPModelsIpopt.ipopt(m; tol, acceptable_tol, max_wall_time, print_level = 0, acceptable..., solver..., log...)
     logged = ipopt_counts(output_file)
     counters = (;
         factorization_cnt = 0, backsolve_cnt = 0, ir = 0, obj_cnt = NLPModels.neval_obj(m), obj_grad_cnt = NLPModels.neval_grad(m),
