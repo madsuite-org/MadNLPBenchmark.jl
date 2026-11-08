@@ -78,7 +78,7 @@ cd "$work/harness"
 julia --startup-file=no setup.jl "$work/madnlp" ${JOB_HSL:+--hsl=$JOB_HSL} || fail 3
 unset CUDA_VISIBLE_DEVICES
 julia --startup-file=no --project=. run.jl ${JOB_SETS:-acopf,cops,mittelmann,cutest} --device="$devices" --config="$config" ${options:+"--options=$options"} \
-    --wall=${JOB_WALL:-7200} --cuda-wall=${JOB_CUDA_WALL:-600} --root="$work/results" < /dev/null &
+    ${JOB_WALL:+--wall=$JOB_WALL} ${JOB_CUDA_WALL:+--cuda-wall=$JOB_CUDA_WALL} --root="$work/results" < /dev/null &
 bench=$!
 kill "$beat" 2>/dev/null
 while kill -0 "$bench" 2>/dev/null; do copy running; sleep 5 & wait $!; done
