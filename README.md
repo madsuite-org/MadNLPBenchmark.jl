@@ -11,7 +11,7 @@ It benchmarks a MadNLP checkout given from outside. `setup.jl` links that checko
 pinned to a commit there, and the registered ones are bounded in `[compat]`, so that the instances
 and the software around MadNLP are the same from one run to the next. Widening a bound or moving a
 pin is a change to the benchmark itself. The MadNLP packages are bounded in `[compat]` to the series the harness is
-written for, so that a checkout of another series fails at setup. The website at https://madnlp.madsuite.org/benchmark/ is
+written for, so that a checkout of another series fails at setup. The website at https://benchmark.madsuite.org/madnlp/ is
 built from the results by [benchmark-report](https://github.com/madsuite-org/benchmark-report).
 
 The code of an earlier version of this repository is on the `legacy` branch.
@@ -160,7 +160,7 @@ limit, and `-101` one whose model could not be built or whose solve threw.
 Solver logs are in `logs/<set>/<instance>__<configuration>.txt` beside the result files.
 `format` is a small package with no solver among its dependencies: it reads and
 scores result files, and its `archive.jl` archives them. The website at
-https://madnlp.madsuite.org/benchmark/ is built from them by
+https://benchmark.madsuite.org/madnlp/ is built from them by
 [benchmark-report](https://github.com/madsuite-org/benchmark-report), which can also be run by
 hand.
 
@@ -176,3 +176,23 @@ mean of 1. The version fixes Ipopt (`Ipopt_jll` in `[compat]`) and the licensed 
 in `Project.toml`, which `run.jl` checks), so bump it when the instances, the pins, these
 libraries or the protocol change, and run Ipopt once for the new version: `run.jl ... --config=ipopt`,
 then `archive.jl DIR --ipopt-reference`.
+
+## Publishing results run elsewhere
+
+Benchmarks run through the website's queue appear there by themselves. Results run anywhere else,
+on a cluster or a rented machine, can be shown there too, by anyone with write access to
+MadNLP.jl:
+
+```sh
+julia setup.jl ../MadNLP.jl
+julia --project=. run.jl acopf,cops --device=cuda --root=results
+tar czf results.tar.gz -C results .
+curl -H "Authorization: Bearer $(gh auth token)" --data-binary @results.tar.gz \
+     "https://benchmark.madsuite.org/queue/api/results?name=my-experiment"
+```
+
+The answer gives the report's address. The name is lowercase letters, digits and `-`; sending the
+same name again replaces your own upload. An upload is a report of its own and never counts as
+master's results in comparisons. The website's
+[queue documentation](https://github.com/madsuite-org/benchmark-report/blob/main/queue/README.md)
+has the details.
