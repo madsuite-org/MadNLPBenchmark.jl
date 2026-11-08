@@ -1,6 +1,6 @@
 name = "MadNLPBenchmark"
 uuid = "dabdbe9e-1875-4984-9f44-02ea575dbdb4"
-version = "0.1.0"
+version = "0.2.0"
 
 [deps]
 BenchmarkFormat = "6d1f3b8e-42a7-4e1c-9a55-0f0f4c1d7e21"
