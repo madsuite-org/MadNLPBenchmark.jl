@@ -9,7 +9,7 @@ using Distributed
 function parse_args(args)
     isempty(args) && error(
         "usage: run.jl <set>[,<set>...] [--config=a,b] [--device=cpu|cuda|cpu,cuda] [--workers=auto|N] [--workers-per-gpu=2] [--root=DIR] [--out=DIR] " *
-            "[--only=case,...] [--tol=1e-8] [--wall=7200] [--cuda-wall=S] [--margin=S] [--status-every=600] [--no-warmup] [--overwrite] [--verbose]"
+            "[--only=case,...] [--tol=1e-8] [--wall=7200] [--cuda-wall=S] [--margin=S] [--status-every=600] [--options=name=value,...] [--no-warmup] [--overwrite] [--verbose]"
     )
     opt = Dict{String, String}("device" => "cpu", "config" => "default", "tol" => "1e-8", "wall" => "7200", "workers" => "auto")
     flags = Set{String}()
@@ -21,6 +21,28 @@ function parse_args(args)
     return String.(split(args[begin], ",")), opt, flags
 end
 const SET_NAMES, OPT, FLAGS = parse_args(ARGS)
+
+# Everything this run prints, package precompilation, worker output and the legs of several
+# devices included, also goes to run.log in the result root, as it is printed. The first process
+# does it; the processes it starts write into the same streams.
+if !haskey(ENV, "MADNLP_BENCHMARK_LOG")
+    const RUN_LOG = joinpath(get(OPT, "root", joinpath(@__DIR__, "results")), "run.log")
+    ENV["MADNLP_BENCHMARK_LOG"] = RUN_LOG
+    mkpath(dirname(RUN_LOG))
+    let log = open(RUN_LOG, "a")
+        for (redirect, stream) in ((redirect_stdout, stdout), (redirect_stderr, stderr))
+            reader = redirect()
+            errormonitor(
+                @async while !eof(reader)
+                    bytes = readavailable(reader)
+                    write(stream, bytes)
+                    write(log, bytes)
+                    flush(log)
+                end
+            )
+        end
+    end
+end
 
 # Several devices: one run of this script per device, side by side, each sized on its own. The
 # run fails if one of them does.
@@ -37,6 +59,8 @@ if occursin(',', OPT["device"])
 end
 
 const DEVICE = Symbol(OPT["device"])
+# MadNLP options given on the command line, on top of the default configuration (see configs.jl)
+const CUSTOM_OPTIONS = get(OPT, "options", "")
 DEVICE in (:cpu, :cuda) || error("--device is cpu or cuda")
 
 include(joinpath(@__DIR__, "session.jl"))
@@ -94,10 +118,13 @@ function start_worker!(slot::Slot, chosen, options)
     slot.pid = only(addprocs(1; exeflags = ["--project=$(Base.active_project())", "--startup-file=no", "--heap-size-hint=$HEAP_HINT"]))
     slot.os_pid = remotecall_fetch(getpid, slot.pid)
     push!(WORKER_PIDS, slot.os_pid)
-    remotecall_wait(Core.eval, slot.pid, Main, :(const DEVICE = $(QuoteNode(DEVICE)); const SET_NAMES = $SET_NAMES; const LOG_DIR = $(LOG_DIR[])))
+    remotecall_wait(Core.eval, slot.pid, Main, :(const DEVICE = $(QuoteNode(DEVICE)); const SET_NAMES = $SET_NAMES; const LOG_DIR = $(LOG_DIR[]); const CUSTOM_OPTIONS = $CUSTOM_OPTIONS))
     isempty(slot.gpu) || remotecall_wait(Core.eval, slot.pid, Main, :(ENV["CUDA_VISIBLE_DEVICES"] = $(slot.gpu)))
+    slot.state, slot.since = :loading, time()   # the packages, compiling them where needed
     remotecall_wait(Core.eval, slot.pid, Main, :(include($(joinpath(@__DIR__, "session.jl")))))
+    slot.state, slot.since = :warming, time()   # the solve path, on tiny problems
     remotecall_wait(Main.warm_up, slot.pid, chosen, options)
+    slot.state, slot.since = :idle, time()
     return slot
 end
 
@@ -107,7 +134,7 @@ function decode_in_background(names, decoded)
     try
         pid = only(addprocs(1; exeflags = ["--project=$(Base.active_project())", "--startup-file=no"]))
         push!(WORKER_PIDS, remotecall_fetch(getpid, pid))
-        remotecall_wait(Core.eval, pid, Main, :(const DEVICE = $(QuoteNode(DEVICE)); const SET_NAMES = $SET_NAMES))
+        remotecall_wait(Core.eval, pid, Main, :(const DEVICE = $(QuoteNode(DEVICE)); const SET_NAMES = $SET_NAMES; const CUSTOM_OPTIONS = $CUSTOM_OPTIONS))
         remotecall_wait(Core.eval, pid, Main, :(include($(joinpath(@__DIR__, "session.jl")))))
         progress = RemoteChannel(() -> Channel{String}(Inf))
         remote_do(Main.decode_cutest, pid, names, progress)
@@ -270,7 +297,7 @@ end
 
 function main()
     available = first.(configs(DEVICE))
-    chosen = String.(split(OPT["config"], ","))
+    chosen = isempty(CUSTOM_OPTIONS) ? String.(split(OPT["config"], ",")) : [custom_name(CUSTOM_OPTIONS)]
     unknown = setdiff(chosen, available)
     isempty(unknown) || error("no configuration $(join(unknown, ", ")) on $DEVICE; available: $(join(available, ", "))")
     device_name = DEVICE == :cuda ? CUDA.name(CUDA.device()) : nothing
@@ -310,6 +337,9 @@ function main()
         decoder = @async decode_in_background(last(only(s for s in sets if first(s) == "cutest")), decoded)
     end
     LOG_DIR[] = joinpath(outdir, "logs")
+    # until the workers are up, the status says so; run.log has the detail
+    mkpath(outdir)
+    write(joinpath(outdir, "summary.md"), "```\nstatus: starting $(worker_count()) worker(s): loading and compiling packages, see run.log\n```\n")
     slots = start_workers(worker_count(), chosen, options)
     @info "$(length(slots)) worker(s), results in $outdir"
     # the threads a solve actually gets are those of a worker, not of this process
@@ -343,7 +373,10 @@ function main()
     end
     run_benchmark(
         sets, chosen; outdir, slots, meta, overwrite = "overwrite" in FLAGS, group = instance_group,
-        meta_of = config -> Dict{String, Any}("config_options" => string(config_options[config])),
+        meta_of = config -> Dict{String, Any}(
+            "config_options" => string(config_options[config]),
+            (startswith(config, "custom-") ? ("custom_options" => normalized_options(CUSTOM_OPTIONS),) : ())...,
+        ),
     ) do slot, set, case, todo
         set == "cutest" && decoder !== nothing && wait_decoded(slot, case, decoded, decoder)
         solve_on(slot, set, case, todo, chosen, options, warmup, limit)
