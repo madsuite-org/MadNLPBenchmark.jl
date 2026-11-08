@@ -25,7 +25,11 @@ fi
 harness=$(cd "$(dirname "$0")/.." && pwd)
 work=${JOB_HOME:?}
 repository=${JOB_REPOSITORY:-madsuite-org/MadNLP.jl}
-export JULIA_DEPOT_PATH="$work/depot:${JOB_SHARED_DEPOT:-}"
+# the depot by its real path: a depot kept between jobs is reached through a link in each job's
+# folder, and Julia records the path it was given in what it compiles and installs, so a later
+# job would look in an earlier job's folder
+mkdir -p "$work/depot"
+export JULIA_DEPOT_PATH="$(readlink -f "$work/depot"):${JOB_SHARED_DEPOT:-}"
 mkdir -p "$work/results" "$live"
 if [ "$mode" = fresh ]; then
     find "$live" -mindepth 1 -delete

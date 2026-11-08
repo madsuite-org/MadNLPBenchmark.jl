@@ -171,6 +171,20 @@ class TestJob(unittest.TestCase):
                     ["branch", "", "keep", "default", "", "", "gpu"]):
             self.assertNotEqual(subprocess.run([os.path.join(HERE, "job.sh"), self.live, self.sha, *bad], env=env, capture_output=True).returncode, 0, bad)
 
+    def test_a_kept_depot_is_used_by_its_real_path(self):
+        kept = os.path.join(self.dir, "kept-depot")
+        os.makedirs(kept)
+        os.makedirs(self.env["JOB_HOME"], exist_ok=True)
+        os.symlink(kept, os.path.join(self.env["JOB_HOME"], "depot"))
+        julia = os.path.join(self.dir, "bin", "julia")
+        script(julia, """
+            case "$*" in
+              *run.jl*) echo "$JULIA_DEPOT_PATH" > "$JOB_HOME/depot-path"; root=${@: -1}; root=${root#--root=}; mkdir -p "$root/m" ;;
+            esac
+            """)
+        self.assertEqual(subprocess.run([os.path.join(HERE, "job.sh"), self.live, self.sha, "pr", "7"], env=self.env, capture_output=True).returncode, 0)
+        self.assertEqual(open(os.path.join(self.env["JOB_HOME"], "depot-path")).read().split(":")[0], os.path.realpath(kept))
+
     def test_a_missing_commit_fails(self):
         rc = subprocess.run([os.path.join(HERE, "job.sh"), self.live, "b" * 40, "pr", "7"], env=self.env, capture_output=True).returncode
         self.assertNotEqual(rc, 0)
