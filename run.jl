@@ -9,7 +9,7 @@ using Distributed
 function parse_args(args)
     isempty(args) && error(
         "usage: run.jl <set>[,<set>...] [--config=a,b] [--device=cpu|cuda|cpu,cuda] [--workers=auto|N] [--workers-per-gpu=2] [--root=DIR] [--out=DIR] " *
-            "[--only=case,...] [--tol=1e-8] [--wall=7200] [--cuda-wall=S] [--margin=S] [--status-every=600] [--no-warmup] [--overwrite] [--verbose]"
+            "[--only=case,...] [--tol=1e-8] [--wall=7200] [--cuda-wall=S] [--margin=S] [--status-every=600] [--options=name=value,...] [--no-warmup] [--overwrite] [--verbose]"
     )
     opt = Dict{String, String}("device" => "cpu", "config" => "default", "tol" => "1e-8", "wall" => "7200", "workers" => "auto")
     flags = Set{String}()
@@ -37,6 +37,8 @@ if occursin(',', OPT["device"])
 end
 
 const DEVICE = Symbol(OPT["device"])
+# MadNLP options given on the command line, on top of the default configuration (see configs.jl)
+const CUSTOM_OPTIONS = get(OPT, "options", "")
 DEVICE in (:cpu, :cuda) || error("--device is cpu or cuda")
 
 include(joinpath(@__DIR__, "session.jl"))
@@ -94,7 +96,7 @@ function start_worker!(slot::Slot, chosen, options)
     slot.pid = only(addprocs(1; exeflags = ["--project=$(Base.active_project())", "--startup-file=no", "--heap-size-hint=$HEAP_HINT"]))
     slot.os_pid = remotecall_fetch(getpid, slot.pid)
     push!(WORKER_PIDS, slot.os_pid)
-    remotecall_wait(Core.eval, slot.pid, Main, :(const DEVICE = $(QuoteNode(DEVICE)); const SET_NAMES = $SET_NAMES; const LOG_DIR = $(LOG_DIR[])))
+    remotecall_wait(Core.eval, slot.pid, Main, :(const DEVICE = $(QuoteNode(DEVICE)); const SET_NAMES = $SET_NAMES; const LOG_DIR = $(LOG_DIR[]); const CUSTOM_OPTIONS = $CUSTOM_OPTIONS))
     isempty(slot.gpu) || remotecall_wait(Core.eval, slot.pid, Main, :(ENV["CUDA_VISIBLE_DEVICES"] = $(slot.gpu)))
     remotecall_wait(Core.eval, slot.pid, Main, :(include($(joinpath(@__DIR__, "session.jl")))))
     remotecall_wait(Main.warm_up, slot.pid, chosen, options)
@@ -107,7 +109,7 @@ function decode_in_background(names, decoded)
     try
         pid = only(addprocs(1; exeflags = ["--project=$(Base.active_project())", "--startup-file=no"]))
         push!(WORKER_PIDS, remotecall_fetch(getpid, pid))
-        remotecall_wait(Core.eval, pid, Main, :(const DEVICE = $(QuoteNode(DEVICE)); const SET_NAMES = $SET_NAMES))
+        remotecall_wait(Core.eval, pid, Main, :(const DEVICE = $(QuoteNode(DEVICE)); const SET_NAMES = $SET_NAMES; const CUSTOM_OPTIONS = $CUSTOM_OPTIONS))
         remotecall_wait(Core.eval, pid, Main, :(include($(joinpath(@__DIR__, "session.jl")))))
         progress = RemoteChannel(() -> Channel{String}(Inf))
         remote_do(Main.decode_cutest, pid, names, progress)
@@ -270,7 +272,7 @@ end
 
 function main()
     available = first.(configs(DEVICE))
-    chosen = String.(split(OPT["config"], ","))
+    chosen = isempty(CUSTOM_OPTIONS) ? String.(split(OPT["config"], ",")) : [custom_name(CUSTOM_OPTIONS)]
     unknown = setdiff(chosen, available)
     isempty(unknown) || error("no configuration $(join(unknown, ", ")) on $DEVICE; available: $(join(available, ", "))")
     device_name = DEVICE == :cuda ? CUDA.name(CUDA.device()) : nothing
@@ -343,7 +345,10 @@ function main()
     end
     run_benchmark(
         sets, chosen; outdir, slots, meta, overwrite = "overwrite" in FLAGS, group = instance_group,
-        meta_of = config -> Dict{String, Any}("config_options" => string(config_options[config])),
+        meta_of = config -> Dict{String, Any}(
+            "config_options" => string(config_options[config]),
+            (startswith(config, "custom-") ? ("custom_options" => normalized_options(CUSTOM_OPTIONS),) : ())...,
+        ),
     ) do slot, set, case, todo
         set == "cutest" && decoder !== nothing && wait_decoded(slot, case, decoded, decoder)
         solve_on(slot, set, case, todo, chosen, options, warmup, limit)

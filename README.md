@@ -70,6 +70,7 @@ something new.
 | `--cuda-wall=S` | as `--wall` | the same on a CUDA device |
 | `--margin=S` | larger of 120 s and 20% of the limit | how far past the limit a worker is killed |
 | `--status-every=600` | `600` | seconds between status reports |
+| `--options=a=1,b=x` | | MadNLP options on top of `default`, run as configuration `custom-<hash>` (see below) |
 | `--no-warmup` | | skip the discarded solves (see the protocol) |
 | `--overwrite` | | start the result files afresh instead of resuming |
 | `--verbose` | | print MadNLP's iteration log |
@@ -99,6 +100,15 @@ is kept in `summary.md` beside the result files, rewritten every 5 s. It also ap
 **CUTEst.** On the host one more process decodes the problems, one after the other, while the
 workers solve the sets ahead of CUTEst, so list `cutest` last. The decoded files stay in
 CUTEst.jl's directory for later runs.
+
+**Options.** `--options` takes `name=value` pairs, separated by commas, and runs them on top of
+the `default` configuration of the device. Values are read as literals and never evaluated:
+integers, floats, `true`/`false`, a character in single quotes, a word in double quotes, or a
+name from `OPTION_VALUES` in `configs.jl` (KKT systems, linear solvers, treatments). Unknown
+option names are refused. `configs.toml` lists the configuration names per device, the option names and the
+names allowed as values, for checking a job without Julia; `configs_toml.jl` rewrites it and
+checks that it is up to date. The results go under the configuration `custom-<8 hex digits>`, from
+the options in sorted order, and the metadata records them as `custom_options`.
 
 ## Protocol
 

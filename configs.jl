@@ -53,17 +53,17 @@ function run_ipopt(m; tol, acceptable_tol, max_wall_time, output_file = "", _...
     )
 end
 
-function configs(device::Symbol)
+function configs(device::Symbol; hsl::Bool = HSL.LIBHSL_isfunctional())
     c = Pair{String, NamedTuple}[]
     # The augmented system with MA57 on the host where a licensed HSL_jll is installed, else with
     # MUMPS, and the condensed system with cuDSS on a CUDA device
     ma57 = (; linear_solver = MadNLP.Ma57Solver, ma57_automatic_scaling = true)
-    push!(c, "default" => (device == :cpu && HSL.LIBHSL_isfunctional() ? ma57 : (;)))
+    push!(c, "default" => (device == :cpu && hsl ? ma57 : (;)))
     if device == :cpu
         push!(c, "augmented_mumps" => (; linear_solver = MadNLP.MumpsSolver))
         push!(c, "ipopt" => (; solver = run_ipopt))
         push!(c, "condensed_cholmod" => (; CONDENSED..., linear_solver = MadNLP.CHOLMODSolver))
-        if HSL.LIBHSL_isfunctional()   # the registry's HSL_jll carries no solver
+        if hsl   # the registry's HSL_jll carries no solver
             push!(c, "augmented_ma27" => (; linear_solver = MadNLP.Ma27Solver))
             push!(c, "augmented_ma57" => ma57)
         end
@@ -79,11 +79,64 @@ function configs(device::Symbol)
             ),
         )
     end
+    # options from the command line, on top of the default configuration
+    isdefined(Main, :CUSTOM_OPTIONS) && !isempty(Main.CUSTOM_OPTIONS) &&
+        push!(c, custom_name(Main.CUSTOM_OPTIONS) => custom_options(last(c[1]), parse_options(Main.CUSTOM_OPTIONS)))
     return c
 end
 
 # MadNLP ignores an option it does not know, so a mistyped option would measure the default
 # under the name of the configuration.
+# Options given as text, `name=value,...`, as from `run.jl --options`. Only literals are read,
+# never evaluated: integers, floats, booleans, a character in single quotes, a word in double
+# quotes, or one of the names in OPTION_VALUES.
+const OPTION_VALUES = Dict{String, Function}(
+    "SparseKKTSystem" => () -> MadNLP.SparseKKTSystem, "SparseCondensedKKTSystem" => () -> MadNLP.SparseCondensedKKTSystem,
+    "SparseUnreducedKKTSystem" => () -> MadNLP.SparseUnreducedKKTSystem,
+    "MumpsSolver" => () -> MadNLP.MumpsSolver, "CHOLMODSolver" => () -> MadNLP.CHOLMODSolver,
+    "Ma27Solver" => () -> MadNLP.Ma27Solver, "Ma57Solver" => () -> MadNLP.Ma57Solver,
+    "CUDSSSolver" => () -> cuMadNLP.CUDSSSolver,
+    "RelaxEquality" => () -> MadNLP.RelaxEquality, "EnforceEquality" => () -> MadNLP.EnforceEquality,
+    "RelaxBound" => () -> MadNLP.RelaxBound, "MakeParameter" => () -> MadNLP.MakeParameter,
+    "DualInitializeSetZero" => () -> MadNLP.DualInitializeSetZero,
+    "DualInitializeLeastSquares" => () -> MadNLP.DualInitializeLeastSquares,
+    "LDL" => () -> MadNLP.LDL, "CHOLESKY" => () -> MadNLP.CHOLESKY, "LU" => () -> MadNLP.LU,
+)
+
+function option_value(text)
+    occursin(r"^-?[0-9]+$", text) && return parse(Int, text)
+    occursin(r"^-?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$", text) && return parse(Float64, text)
+    text in ("true", "false") && return text == "true"
+    (m = match(r"^'(.)'$", text)) === nothing || return only(m[1])
+    (m = match(r"^\"([A-Za-z0-9_.-]*)\"$", text)) === nothing || return String(m[1])
+    haskey(OPTION_VALUES, text) && return OPTION_VALUES[text]()
+    return error("option value $text is not a literal or a known name")
+end
+
+function parse_options(text)
+    pairs = map(split(text, ","; keepempty = false)) do item
+        m = match(r"^\s*([a-z_][a-z0-9_]*)\s*=\s*(\S+)\s*$", item)
+        m === nothing && error("option $item is not name=value")
+        Symbol(m[1]) => option_value(m[2])
+    end
+    allunique(first.(pairs)) || error("an option is given twice in $text")
+    return (; pairs...)
+end
+
+# Options on top of a configuration. Another linear solver drops the options of the configuration's
+# own linear solver, such as those of MA57 in `default` on the host.
+function custom_options(base, given)
+    if haskey(given, :linear_solver)
+        own = Set(fieldnames(MadNLP.MadNLPOptions))
+        base = (; (k => v for (k, v) in pairs(base) if k in own)...)
+    end
+    return (; base..., given...)
+end
+
+# The same options in one order, which names a configuration: custom-<8 hex digits of its SHA-1>.
+normalized_options(text) = join(sort!(map(strip, split(text, ","; keepempty = false))), ",")
+custom_name(text) = "custom-" * bytes2hex(SHA.sha1(normalized_options(text)))[1:8]
+
 function validate(configs)
     for (name, opts) in configs
         haskey(opts, :solver) && continue   # options of another solver
