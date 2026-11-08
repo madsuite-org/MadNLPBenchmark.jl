@@ -12,7 +12,7 @@
 #
 # `run` makes this machine a node of the job: it takes the job's settings from the website, clones
 # that commit of MadNLP.jl, sets up this harness, and solves the instances the website hands out,
-# sending what changed every --every seconds (15). Start it on as many machines as you like, at
+# sending what changed every --every seconds (5). Start it on as many machines as you like, at
 # once or later: the website gives each instance to one of them and merges their results into one
 # report. The job file is all a node needs; no GitHub token.
 #
@@ -30,7 +30,7 @@ set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 site=${BENCHMARK_SITE:-https://benchmark.madsuite.org}
 cmd=${1:-}; shift || true
-what=master devices=cpu,cuda config=default options="" sets="" jobfile="" hsl="" work="" depot="" src="" every=15
+what=master devices=cpu,cuda config=default options="" sets="" jobfile="" hsl="" work="" depot="" src="" every=5
 for a in "$@"; do
     case "$a" in
         --devices=*) devices=${a#*=} ;; --config=*) config=${a#*=} ;; --options=*) options=${a#*=} ;;
