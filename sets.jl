@@ -54,10 +54,14 @@ cutest_host_model(name) = CUTEst.CUTEstModel{Float64}(name; decode = false)
 cutest_decoded(name) = all(isfile, joinpath.(CUTEst.libsif_path, ["lib$(name)_double.so", "OUTSDIF_$name.d"]))
 function decode_cutest(names, progress = nothing)
     for name in names
-        cutest_decoded(name) || try
-            finalize(CUTEst.CUTEstModel{Float64}(name))
-        catch err
-            @warn "$name: could not be decoded" exception = err
+        # machines sharing a Julia depot (the nodes of a cluster) share this directory too: one
+        # decodes a problem while the others wait for it
+        cutest_decoded(name) || FileWatching.Pidfile.mkpidlock(joinpath(CUTEst.libsif_path, "$name.decoding"); stale_age = 900) do
+            cutest_decoded(name) || try
+                finalize(CUTEst.CUTEstModel{Float64}(name))
+            catch err
+                @warn "$name: could not be decoded" exception = err
+            end
         end
         progress === nothing || put!(progress, name)
     end

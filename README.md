@@ -177,22 +177,73 @@ in `Project.toml`, which `run.jl` checks), so bump it when the instances, the pi
 libraries or the protocol change, and run Ipopt once for the new version: `run.jl ... --config=ipopt`,
 then `archive.jl DIR --ipopt-reference`.
 
-## Publishing results run elsewhere
+## Running on your own machines (clusters included)
 
-Benchmarks run through the website's queue appear there by themselves. Results run anywhere else,
-on a cluster or a rented machine, can be shown there too, by anyone with write access to
-MadNLP.jl:
+Benchmarks run through the website's queue appear there by themselves. Anyone with write access to
+MadNLP.jl can also run one on machines of their own: a workstation, a rented GPU, or nodes of a
+cluster such as ORCD. The website hands out the instances, collects the results and builds the
+report, which appears on its dashboard like any other job. Two steps:
 
-```sh
-curl -fsSL https://benchmark.madsuite.org/queue/run.sh | bash -s -- my-experiment master --devices=cuda
-```
+1. **Create a job, once.** This fixes what is run: the revision of MadNLP.jl and the configuration,
+   options, devices and sets. It needs a GitHub token with write access (`gh auth login`, or
+   `BENCHMARK_TOKEN`), and writes a *job file* holding the job's number and its own token.
 
-This gets this repository and runs [`runner/publish.sh`](runner/publish.sh), which benchmarks the
-given revision of MadNLP.jl on that machine and uploads the results every few minutes while it runs,
-to `https://benchmark.madsuite.org/madnlp/run-up-my-experiment/`. It needs julia, git and a GitHub
-token (`gh auth login`, or `BENCHMARK_TOKEN`); `runner/publish.sh` lists its options (sets,
-configuration, a licensed HSL with `--hsl`, the work directory). Run CPU and GPU as two runs with
-their own names; on a cluster, run it inside a batch job. By hand, the same is:
+   ```sh
+   runner/publish.sh new master --devices=cuda --options=tol=1e-6 --sets=acopf,cops
+   # job 57: <commit>, cuda, default, tol=1e-6
+   # report: https://benchmark.madsuite.org/madnlp/run-x57-<commit>/
+   # job file: ./benchmark-job-57
+   ```
+
+   The revision is `master`, a pull request number, a branch, or a commit. `--devices` is `cpu`,
+   `cuda` or `cpu,cuda`; create CPU and GPU as two jobs, so that each can go where its hardware is.
+
+2. **Run it on as many machines as you like**, at once or later, with only the job file:
+
+   ```sh
+   runner/publish.sh run --job-file=benchmark-job-57 [--hsl=PATH] [--depot=DIR] [--src=DIR] [--work=DIR]
+   ```
+
+   Each machine (a *node*) takes the job's settings from the website, sets up that commit, and before
+   each instance asks the website whether it is still to do, so no two nodes solve the same one.
+   Every 15 seconds it sends what changed: result rows, its workers' status and its log. The report
+   updates as they arrive, and its workers page shows what every node is solving.
+
+Without a checkout, `curl -fsSL https://benchmark.madsuite.org/queue/run.sh | bash -s -- new ...` and
+`... | bash -s -- run --job-file=...` do the same.
+
+### For agents: a benchmark on a cluster
+
+A typical request is "benchmark this pull request with these options". From the desktop:
+
+1. Create the job(s) with `runner/publish.sh new`, one per device. Keep the job file private (it is
+   mode 600): it lets anyone holding it add results to the job.
+2. Copy the job file to the cluster, and submit several **small** batch jobs that each run
+   `runner/publish.sh run`, rather than one large one: small jobs start sooner, and the website
+   spreads the instances over whichever have started. [`runner/slurm-node.sbatch`](runner/slurm-node.sbatch)
+   is an example for Slurm.
+3. Size each batch job by what the benchmark uses: on the host, `run.jl` starts workers for 75% of
+   the cores the batch job is given; on a GPU, 2 workers per GPU it sees. A node uses only what it is
+   given, and the website does the sharing, so more nodes mean more throughput.
+4. For times you mean to compare, ask for one kind of GPU (`--gres=gpu:h200:1`, say) and one kind of
+   CPU. Nodes of different kinds still give valid solves and iteration counts; the report shows the
+   machine of each instance and marks times that come from different machines.
+5. Preemptible partitions are fine. Use `--requeue`: a node stopped and started again with the same
+   work directory is the same node and carries on, and the instances it held go to the others after 10
+   minutes.
+6. Give all nodes one `--depot` and one `--src` on the cluster's shared file system, and keep them
+   between jobs. The first node of a commit sets it up and compiles it there while the others wait;
+   every other node, and every later job of that commit, reuses what was installed and compiled.
+7. Follow the job on the website's dashboard, or with the API: `GET /queue/api/jobs/<number>` (with
+   a GitHub token) gives its state and nodes. Cancelling it there stops every node at its next
+   request. The job ends when every node still running has finished.
+
+The licensed HSL (`--hsl`, for MA57 on the host) is not public; without it the host uses MUMPS, and
+the report says which. Results from these jobs never count as master's results in comparisons.
+
+### Uploading results by hand
+
+An archive of results made any other way can be uploaded too:
 
 ```sh
 julia setup.jl ../MadNLP.jl

@@ -3,6 +3,7 @@
 # before this file is included, on this process and on every worker.
 
 using SHA
+import FileWatching
 using MadNLP, HSL, ExaModels, ExaModelsPower, COPSBenchmark, ExaMittelmann, NLPModels, NLPModelsIpopt
 # CUTEst: the compiled SIF decoders of CUTEst.jl on the host, ExaCUTEst models on a device
 "cutest" in SET_NAMES && (DEVICE == :cuda ? (@eval using ExaCUTEst) : (@eval using CUTEst))
