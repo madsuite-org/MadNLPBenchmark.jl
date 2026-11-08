@@ -115,6 +115,49 @@ class TestJob(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(old, "cops_default.csv")))
         self.assertTrue(os.path.exists(os.path.join(old, "acopf_default.csv")))
 
+    def test_alive_during_setup_and_options_reach_run(self):
+        julia = os.path.join(self.dir, "bin", "julia")
+        script(julia, """
+            case "$*" in
+              *setup.jl*) sleep 12 ;;
+              *run.jl*) echo "$@" > "$JOB_HOME/args"; root=${@: -1}; root=${root#--root=}; mkdir -p "$root/m" ;;
+            esac
+            """)
+        p = subprocess.Popen([os.path.join(HERE, "job.sh"), self.live, self.sha, "pr", "7", "keep", "augmented_mumps", "tol=1e-6,max_iter=5"],
+                             env=self.env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(4)
+        first = os.stat(os.path.join(self.live, "run.json")).st_mtime
+        time.sleep(7)
+        self.assertGreater(os.stat(os.path.join(self.live, "run.json")).st_mtime, first)   # refreshed during setup
+        self.assertEqual(p.wait(timeout=30), 0)
+        args = open(os.path.join(self.dir, "work", "args")).read()
+        self.assertIn("--config=augmented_mumps --options=tol=1e-6,max_iter=5", args)
+        self.assertNotEqual(subprocess.run([os.path.join(HERE, "job.sh"), self.live, self.sha, "pr", "7", "keep", "a;b"], env=self.env,
+                                           capture_output=True).returncode, 0)
+
+    def test_harness_branch_and_devices(self):
+        other = os.path.join(self.dir, "harness")
+        subprocess.run(["git", "init", "-q", "-b", "main", other], check=True)
+        open(os.path.join(other, "marker"), "w").write("experiment")
+        subprocess.run(["git", "-C", other, "checkout", "-q", "-b", "exp/x"], check=True)
+        subprocess.run(["git", "-C", other, "add", "-A"], check=True)
+        subprocess.run(["git", "-C", other, "-c", "user.name=x", "-c", "user.email=x@x", "commit", "-q", "-m", "x"], check=True)
+        julia = os.path.join(self.dir, "bin", "julia")
+        script(julia, """
+            case "$*" in
+              *run.jl*) echo "$@" > "$JOB_HOME/args"; cat marker > "$JOB_HOME/marker"; root=${@: -1}; root=${root#--root=}; mkdir -p "$root/m" ;;
+            esac
+            """)
+        env = dict(self.env, JOB_HARNESS_SOURCE=other)
+        rc = subprocess.run([os.path.join(HERE, "job.sh"), self.live, self.sha, "branch", "", "keep", "default", "", "exp/x", "cpu"], env=env,
+                            capture_output=True).returncode
+        self.assertEqual(rc, 0)
+        self.assertEqual(open(os.path.join(self.dir, "work", "marker")).read().strip(), "experiment")
+        self.assertIn("--device=cpu ", open(os.path.join(self.dir, "work", "args")).read())
+        for bad in (["master", "", "keep", "default", "", "exp/x", "cpu"], ["branch", "", "keep", "default", "", "../x", "cpu"],
+                    ["branch", "", "keep", "default", "", "", "gpu"]):
+            self.assertNotEqual(subprocess.run([os.path.join(HERE, "job.sh"), self.live, self.sha, *bad], env=env, capture_output=True).returncode, 0, bad)
+
     def test_a_missing_commit_fails(self):
         rc = subprocess.run([os.path.join(HERE, "job.sh"), self.live, "b" * 40, "pr", "7"], env=self.env, capture_output=True).returncode
         self.assertNotEqual(rc, 0)
