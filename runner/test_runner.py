@@ -18,6 +18,19 @@ def script(path, body):
     return path
 
 
+class TestHarness(unittest.TestCase):
+    def test_sources_point_into_the_harness(self):
+        """setup.jl rewrites [sources] on the machine it runs on, which is easy to commit by accident:
+        the harness then sets up only where it was committed from (it happened twice)."""
+        import tomllib
+        sources = tomllib.load(open(os.path.join(HERE, "..", "Project.toml"), "rb"))["sources"]
+        for pkg in ("MadCore", "MadCoreGPU", "MadNLP", "MadNLPCore", "cuMadNLP"):
+            self.assertEqual(sources[pkg], {"path": f"madnlp/{pkg}"}, pkg)
+        for pkg, src in sources.items():
+            path = src.get("path", "")
+            self.assertFalse(path.startswith("/") or ".." in path, f"{pkg}: {path}")
+
+
 class TestRunner(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
