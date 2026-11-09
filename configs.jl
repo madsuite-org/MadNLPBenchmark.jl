@@ -68,6 +68,12 @@ function configs(device::Symbol; hsl::Bool = HSL.LIBHSL_isfunctional())
         push!(c, "augmented_mumps" => (; linear_solver = MadNLP.MumpsSolver))
         push!(c, "ipopt" => (; solver = run_ipopt))
         push!(c, "condensed_cholmod" => (; CONDENSED..., linear_solver = MadNLP.CHOLMODSolver))
+        # the barrier rule and slack reset of MadNLP's GPU preset, with CHOLMOD on the host: tells
+        # what those choices do apart from the GPU's linear algebra (tol = 1e-8, the benchmark's)
+        push!(c, "condensed_cholmod_gpu_preset" => (;
+            CONDENSED..., linear_solver = MadNLP.CHOLMODSolver,
+            barrier = MadNLP.QualityFunctionUpdate{Float64}(sigma_max = 2.0, mu_min = 1.0e-3 * 1.0e-8), slack_reset = true,
+        ))
         if hsl   # the registry's HSL_jll carries no solver
             push!(c, "augmented_ma27" => (; linear_solver = MadNLP.Ma27Solver))
             push!(c, "augmented_ma57" => ma57)
