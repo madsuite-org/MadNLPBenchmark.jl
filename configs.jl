@@ -141,8 +141,9 @@ function option_value(name::Symbol, text)
         type = option_type(name)
         type <: AbstractString && return String(text)
         type <: AbstractChar && length(text) == 1 && return only(text)
+        type <: Symbol && return Symbol(text)
     end
-    return error("option $name=$text: not a number, a boolean, a known name, or a word for a text option")
+    return error("option $name=$text: not a number, a boolean, a known name, or a word for a text or symbol option")
 end
 
 function parse_options(text)
