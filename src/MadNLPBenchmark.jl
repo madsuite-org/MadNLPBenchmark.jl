@@ -260,7 +260,7 @@ interrupted run keeps its rows.
 function run_benchmark(
         solve_on, sets, configs; outdir::AbstractString, slots = [1], group = (set, case) -> case,
         meta = Dict{String, Any}(), meta_of = config -> Dict{String, Any}(), overwrite::Bool = false,
-        claim = (set, case, todo) -> todo,
+        claim = (set, case, todo) -> todo, retry = () -> nothing,
     )
     mkpath(outdir)
     file(set, config) = joinpath(outdir, "$(set)_$(config).csv")
@@ -308,24 +308,40 @@ function run_benchmark(
     end
     close(queue)
     written = ReentrantLock()
-    @sync for slot in slots
-        @async for tasks in queue, (set, case, todo) in tasks
-            # when several machines share the run, only what no other one has taken
-            todo = claim(set, case, todo)
-            isempty(todo) && continue
-            results = try
-                solve_on(slot, set, case, todo)
-            catch err   # the process failed, not the solver
-                @warn "$case: worker failed" exception = (err, catch_backtrace())
-                [config => error_row(case, nothing) for config in todo]
+    function solve_and_write(slot, set, case, todo)
+        results = try
+            solve_on(slot, set, case, todo)
+        catch err   # the process failed, not the solver
+            @warn "$case: worker failed" exception = (err, catch_backtrace())
+            [config => error_row(case, nothing) for config in todo]
+        end
+        lock(written) do
+            for (config, row) in results
+                @info @sprintf("%-11s %-32s %-22s status %4d  iter %5d  time %10.3f s", set, case, config, row[2], row[3], row[T_TOTAL])
+                # a row of an instance tried again replaces the one there
+                old = rows[(set, config)]
+                keep = [1; [i for i in 2:size(old, 1) if string(old[i, 1]) != case]]
+                rows[(set, config)] = vcat(old[keep, :], permutedims(row))
+                writedlm(file(set, config), rows[(set, config)], ',')
+                mark_complete(set, config)
             end
-            lock(written) do
-                for (config, row) in results
-                    @info @sprintf("%-11s %-32s %-22s status %4d  iter %5d  time %10.3f s", set, case, config, row[2], row[3], row[T_TOTAL])
-                    rows[(set, config)] = vcat(rows[(set, config)], permutedims(row))
-                    writedlm(file(set, config), rows[(set, config)], ',')
-                    mark_complete(set, config)
-                end
+        end
+    end
+    @sync for slot in slots
+        @async begin
+            for tasks in queue, (set, case, todo) in tasks
+                # when several machines share the run, only what no other one has taken
+                todo = claim(set, case, todo)
+                isempty(todo) && continue
+                solve_and_write(slot, set, case, todo)
+            end
+            # then instances that failed for a machine reason, here or on another machine, while
+            # whoever coordinates the run hands them out (see `retry`)
+            while (again = retry()) !== nothing
+                set, case, todo = again
+                haskey(cases_of, set) && all(c -> c in configs, todo) || continue
+                @info "$case: trying again ($(join(todo, ", ")))"
+                solve_and_write(slot, set, case, todo)
             end
         end
     end

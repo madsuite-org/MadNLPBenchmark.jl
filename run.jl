@@ -316,6 +316,24 @@ function server_claim(set, case, todo)
     return [c for c in todo if c in granted]
 end
 
+# An instance of the job that failed for a machine reason (killed, or an error), to try again, as
+# (set, case, configs), or nothing when there is none: asked of the server once this machine is
+# done with its own share (see `server_claim`).
+function server_retry()
+    url = replace(get(ENV, "BENCHMARK_CLAIM", ""), r"/claim$" => "/retry")
+    isempty(url) && return nothing
+    body = "{\"node\":\"$(ENV["BENCHMARK_NODE"])\",\"device\":\"$DEVICE\"}"
+    out = try
+        read(`curl -sS -m 60 -H @$(ENV["BENCHMARK_AUTH"]) -H "Content-Type: application/json" --data-binary $body $url`, String)
+    catch err
+        @warn "the server could not be asked for an instance to try again" exception = err
+        return nothing
+    end
+    set, case, configs = match(r"\"set\":\s*\"([a-z]+)\"", out), match(r"\"case\":\s*\"([^\"]+)\"", out), match(r"\"configs\":\s*\[(.*?)\]", out)
+    (set === nothing || case === nothing || configs === nothing) && return nothing
+    return (String(set[1]), String(case[1]), [String(x[1]) for x in eachmatch(r"\"([^\"]+)\"", configs[1])])
+end
+
 function main()
     available = first.(configs(DEVICE))
     chosen = isempty(CUSTOM_OPTIONS) ? String.(split(OPT["config"], ",")) : [custom_name(CUSTOM_OPTIONS)]
@@ -394,7 +412,7 @@ function main()
     end
     run_benchmark(
         sets, chosen; outdir, slots, meta, overwrite = "overwrite" in FLAGS, group = instance_group,
-        claim = server_claim,
+        claim = server_claim, retry = server_retry,
         meta_of = config -> Dict{String, Any}(
             "config_options" => string(config_options[config]),
             (startswith(config, "custom-") ? ("custom_options" => normalized_options(CUSTOM_OPTIONS),) : ())...,
