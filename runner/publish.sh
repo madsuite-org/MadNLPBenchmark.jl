@@ -4,7 +4,7 @@
 #
 #     runner/publish.sh new [master|PR-NUMBER|BRANCH|COMMIT] --note=TEXT [--devices=cpu|cuda|cpu,cuda] [--config=NAME]
 #                           [--options=name=value,...] [--sets=acopf,cops,...] [--subset=TERMS] [--instances=a,b,...|@FILE]
-#                           [--job-file=PATH]
+#                           [--label=TEXT] [--against=JOB,...] [--job-file=PATH]
 #     runner/publish.sh run --job-file=PATH [--hsl=PATH] [--work=DIR] [--depot=DIR] [--src=DIR] [--every=SECONDS]
 #
 # `new` asks the website for a job, with a GitHub token of someone with write access to MadNLP.jl
@@ -16,6 +16,8 @@
 # medium+large, constrained=yes|no, failed=SOURCE, solved=SOURCE, resto=SOURCE, a source being
 # ipopt, the Ipopt reference, or a report such as run-x50-1b00be2e), --instances a list of names
 # (or @FILE, one per line); the website resolves them against what it knows then, and keeps the list.
+# For an A/B, --against gives the job numbers this one is compared with: each report then shows the
+# other as a column, named by that job's --label ("GMRES", "CG"; "job <number>" without one).
 #
 # `run` makes this machine a node of the job: it takes the job's settings from the website, clones
 # that commit of MadNLP.jl, sets up this harness, and solves the instances the website hands out,
@@ -37,12 +39,12 @@ set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 site=${BENCHMARK_SITE:-https://benchmark.madsuite.org}
 cmd=${1:-}; shift || true
-note="" what=master devices=cpu,cuda config=default options="" sets="" subset="" instances="" jobfile="" hsl="" work="" depot="" src="" every=5
+note="" label="" against="" what=master devices=cpu,cuda config=default options="" sets="" subset="" instances="" jobfile="" hsl="" work="" depot="" src="" every=5
 for a in "$@"; do
     case "$a" in
         --devices=*) devices=${a#*=} ;; --config=*) config=${a#*=} ;; --options=*) options=${a#*=} ;;
         --sets=*) sets=${a#*=} ;; --job-file=*) jobfile=${a#*=} ;; --hsl=*) hsl=$(cd "${a#*=}" && pwd) ;;
-        --note=*) note=${a#*=} ;; --subset=*) subset=${a#*=} ;; --instances=@*) instances=$(grep -v '^\s*$' "${a#*=@}" | paste -sd, -) ;; --instances=*) instances=${a#*=} ;;
+        --note=*) note=${a#*=} ;; --label=*) label=${a#*=} ;; --against=*) against=${a#*=} ;; --subset=*) subset=${a#*=} ;; --instances=@*) instances=$(grep -v '^\s*$' "${a#*=@}" | paste -sd, -) ;; --instances=*) instances=${a#*=} ;;
         --work=*) work=${a#*=} ;; --depot=*) depot=${a#*=} ;; --src=*) src=${a#*=} ;; --every=*) every=${a#*=} ;;
         --*) echo "publish: unknown option $a" >&2; exit 2 ;;
         *) what=$a ;;
@@ -62,15 +64,18 @@ if [ "$cmd" = new ]; then
     [[ $config =~ ^[a-z0-9_]+$ && $devices =~ ^(cpu|cuda|cpu,cuda)$ && $options =~ ^[A-Za-z0-9_.,=+(){}-]*$ && $sets =~ ^[a-z,]*$
        && $subset =~ ^[a-z0-9=+,-]*$ && $instances =~ ^[A-Za-z0-9_.+,-]*$ ]] ||
         { echo "publish: bad --config, --devices, --options, --sets, --subset or --instances" >&2; exit 2; }
+    [[ $label =~ ^[A-Za-z0-9\ \#().+_-]{0,40}$ && $against =~ ^([0-9]+(,[0-9]+){0,3})?$ ]] ||
+        { echo "publish: --label is up to 40 letters, digits, spaces and # ( ) . _ + -; --against is job numbers, up to 4" >&2; exit 2; }
     [ -n "$note" ] || { echo "publish: give --note: what the job is for" >&2; exit 2; }
     [[ ${#note} -le 200 && $note != *[\"\\]* ]] || { echo "publish: --note is up to 200 characters, without \" or \\" >&2; exit 2; }
     list=""
     [ -n "$instances" ] && list=", \"instances\": [\"${instances//,/\",\"}\"]"
-    body="{\"external\": true, $target, \"devices\": \"$devices\", \"config\": \"$config\", \"options\": \"$options\"${sets:+, \"sets\": \"$sets\"}${subset:+, \"subset\": \"$subset\"}$list, \"note\": \"$note\"}"
+    body="{\"external\": true, $target, \"devices\": \"$devices\", \"config\": \"$config\", \"options\": \"$options\"${sets:+, \"sets\": \"$sets\"}${subset:+, \"subset\": \"$subset\"}$list, \"note\": \"$note\"${label:+, \"label\": \"$label\"}${against:+, \"against\": [$against]}}"
     out=$(curl -sS -H @<(printf 'Authorization: Bearer %s\n' "$token") -H "Content-Type: application/json" --data-binary "$body" "$site/queue/api/jobs") ||
         { echo "publish: $site cannot be reached" >&2; exit 2; }
     id=$(json_field id <<< "$out") jtoken=$(json_field token <<< "$out")
     [[ $id =~ ^[0-9]+$ && -n $jtoken ]] || { echo "publish: the website refused: $out" >&2; exit 2; }
+    problem=$(json_field error <<< "$out"); [ -n "$problem" ] && echo "publish: $problem" >&2
     jobfile=${jobfile:-$PWD/benchmark-job-$id}
     (umask 077; printf '%s %s %s\n' "$site" "$id" "$jtoken" > "$jobfile")
     n=$(json_field instances <<< "$out")
