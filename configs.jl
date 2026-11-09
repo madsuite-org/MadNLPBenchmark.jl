@@ -86,6 +86,10 @@ function configs(device::Symbol; hsl::Bool = HSL.LIBHSL_isfunctional())
         if hsl   # the registry's HSL_jll carries no solver
             push!(c, "augmented_ma27" => (; linear_solver = MadNLP.Ma27Solver))
             push!(c, "augmented_ma57" => ma57)
+            # MA57 with the barrier rule and slack reset of MadNLP's GPU preset
+            push!(c, "augmented_ma57_qf_reset" => (;
+                ma57..., barrier = MadNLP.QualityFunctionUpdate{Float64}(sigma_max = 2.0, mu_min = 1.0e-3 * 1.0e-8), slack_reset = true,
+            ))
         end
     elseif device == :cuda
         # Bunch-Kaufman pivoting needs cuDSS's matching, which reads the matrix values: the
