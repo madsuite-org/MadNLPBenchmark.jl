@@ -3,12 +3,17 @@
 # report. Two steps: create a job once, then run it on as many machines as you like.
 #
 #     runner/publish.sh new [master|PR-NUMBER|BRANCH|COMMIT] [--devices=cpu|cuda|cpu,cuda] [--config=NAME]
-#                           [--options=name=value,...] [--sets=acopf,cops,...] [--job-file=PATH]
+#                           [--options=name=value,...] [--sets=acopf,cops,...] [--subset=TERMS] [--instances=a,b,...|@FILE]
+#                           [--job-file=PATH]
 #     runner/publish.sh run --job-file=PATH [--hsl=PATH] [--work=DIR] [--depot=DIR] [--src=DIR] [--every=SECONDS]
 #
 # `new` asks the website for a job, with a GitHub token of someone with write access to MadNLP.jl
 # (BENCHMARK_TOKEN, or `gh auth token`), and writes the job's number and its own token to the job
-# file (./benchmark-job-<number>, mode 600). The job's settings are fixed there and then.
+# file (./benchmark-job-<number>, mode 600). The job's settings are fixed there and then. A job can
+# run over a subset: --subset takes terms that every instance meets, joined by commas (size=small+
+# medium+large, constrained=yes|no, failed=SOURCE, solved=SOURCE, resto=SOURCE, a source being
+# ipopt, the Ipopt reference, or a report such as run-x50-1b00be2e), --instances a list of names
+# (or @FILE, one per line); the website resolves them against what it knows then, and keeps the list.
 #
 # `run` makes this machine a node of the job: it takes the job's settings from the website, clones
 # that commit of MadNLP.jl, sets up this harness, and solves the instances the website hands out,
@@ -30,11 +35,12 @@ set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 site=${BENCHMARK_SITE:-https://benchmark.madsuite.org}
 cmd=${1:-}; shift || true
-what=master devices=cpu,cuda config=default options="" sets="" jobfile="" hsl="" work="" depot="" src="" every=5
+what=master devices=cpu,cuda config=default options="" sets="" subset="" instances="" jobfile="" hsl="" work="" depot="" src="" every=5
 for a in "$@"; do
     case "$a" in
         --devices=*) devices=${a#*=} ;; --config=*) config=${a#*=} ;; --options=*) options=${a#*=} ;;
         --sets=*) sets=${a#*=} ;; --job-file=*) jobfile=${a#*=} ;; --hsl=*) hsl=$(cd "${a#*=}" && pwd) ;;
+        --subset=*) subset=${a#*=} ;; --instances=@*) instances=$(grep -v '^\s*$' "${a#*=@}" | paste -sd, -) ;; --instances=*) instances=${a#*=} ;;
         --work=*) work=${a#*=} ;; --depot=*) depot=${a#*=} ;; --src=*) src=${a#*=} ;; --every=*) every=${a#*=} ;;
         --*) echo "publish: unknown option $a" >&2; exit 2 ;;
         *) what=$a ;;
@@ -51,16 +57,20 @@ if [ "$cmd" = new ]; then
     elif [[ $what =~ ^[0-9a-f]{40}$ ]]; then target="\"commit\": \"$what\""
     elif [[ $what =~ ^[A-Za-z0-9._/-]+$ ]]; then target="\"branch\": \"$what\""
     else echo "publish: give master, a pull request number, a branch or a commit" >&2; exit 2; fi
-    [[ $config =~ ^[a-z0-9_]+$ && $devices =~ ^(cpu|cuda|cpu,cuda)$ && $options =~ ^[A-Za-z0-9_.,=+-]*$ && $sets =~ ^[a-z,]*$ ]] ||
-        { echo "publish: bad --config, --devices, --options or --sets" >&2; exit 2; }
-    body="{\"external\": true, $target, \"devices\": \"$devices\", \"config\": \"$config\", \"options\": \"$options\"${sets:+, \"sets\": \"$sets\"}}"
+    [[ $config =~ ^[a-z0-9_]+$ && $devices =~ ^(cpu|cuda|cpu,cuda)$ && $options =~ ^[A-Za-z0-9_.,=+-]*$ && $sets =~ ^[a-z,]*$
+       && $subset =~ ^[a-z0-9=+,-]*$ && $instances =~ ^[A-Za-z0-9_.+,-]*$ ]] ||
+        { echo "publish: bad --config, --devices, --options, --sets, --subset or --instances" >&2; exit 2; }
+    list=""
+    [ -n "$instances" ] && list=", \"instances\": [\"${instances//,/\",\"}\"]"
+    body="{\"external\": true, $target, \"devices\": \"$devices\", \"config\": \"$config\", \"options\": \"$options\"${sets:+, \"sets\": \"$sets\"}${subset:+, \"subset\": \"$subset\"}$list}"
     out=$(curl -sS -H @<(printf 'Authorization: Bearer %s\n' "$token") -H "Content-Type: application/json" --data-binary "$body" "$site/queue/api/jobs") ||
         { echo "publish: $site cannot be reached" >&2; exit 2; }
     id=$(json_field id <<< "$out") jtoken=$(json_field token <<< "$out")
     [[ $id =~ ^[0-9]+$ && -n $jtoken ]] || { echo "publish: the website refused: $out" >&2; exit 2; }
     jobfile=${jobfile:-$PWD/benchmark-job-$id}
     (umask 077; printf '%s %s %s\n' "$site" "$id" "$jtoken" > "$jobfile")
-    echo "job $id: $(json_field sha <<< "$out"), $devices, $config${options:+, $options}"
+    n=$(json_field instances <<< "$out")
+    echo "job $id: $(json_field sha <<< "$out"), $devices, $config${options:+, $options}${n:+, $n instances (${subset:-listed})}"
     echo "report: $(json_field report <<< "$out")"
     echo "job file: $jobfile (run each node with: runner/publish.sh run --job-file=$jobfile)"
     exit 0
@@ -91,7 +101,7 @@ sha=$(json_field sha <<< "$spec") state=$(json_field state <<< "$spec")
 [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "publish: the website refused: $spec" >&2; exit 3; }
 [ "$state" = running ] || { echo "publish: job $id is $state"; exit 0; }
 devices=$(json_field devices <<< "$spec") config=$(json_field config <<< "$spec") options=$(json_field options <<< "$spec")
-sets=$(json_field sets <<< "$spec")
+sets=$(json_field sets <<< "$spec") only=$(json_field only <<< "$spec")
 echo "publish: job $id node $node on $host, $sha, $devices, $config${options:+, $options}, $(date -u '+%F %T') UTC"
 
 # what changed since the last time, and this node's log; the answer says whether to stop
@@ -144,7 +154,7 @@ export JULIA_DEPOT_PATH="$(readlink -f "$depot/by-cpu/${cpu:-unknown}"):$(readli
 ) 9> "$depot/by-cpu/${cpu:-unknown}.lock" || { send failed; exit 4; }
 export BENCHMARK_CLAIM=$api/claim BENCHMARK_AUTH=$auth BENCHMARK_NODE=$node
 julia --startup-file=no --project=. run.jl "${sets:-acopf,cops,mittelmann,cutest}" --device="$devices" --config="$config" \
-    ${options:+"--options=$options"} --root="$work/results" < /dev/null &
+    ${options:+"--options=$options"} ${only:+"--only=$only"} --root="$work/results" < /dev/null &
 bench=$!
 # stopped (preempted, cancelled): say so, and keep what there is; running this again carries on
 trap 'kill $bench 2>/dev/null; wait $bench; send interrupted; exit 143' TERM INT
