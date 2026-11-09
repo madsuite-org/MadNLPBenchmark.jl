@@ -105,10 +105,17 @@ workers solve the sets ahead of CUTEst, so list `cutest` last. The decoded files
 CUTEst.jl's directory for later runs.
 
 **Options.** `--options` takes `name=value` pairs, separated by commas, and runs them on top of
-the `default` configuration of the device. Values are read as literals, never evaluated, and are
-never quoted: an integer, a float, `true` or `false`, a name from `OPTION_VALUES` in `configs.jl`
-(KKT systems, linear solvers, treatments), or a bare word of letters, digits, `_`, `.` and `-` for
-an option whose declared type is a string or a character. Unknown option names are refused, and
+the `default` configuration of the device. Values are read, never evaluated, and are never quoted:
+an integer, a float, `true` or `false`; a name MadNLP defines, a type or a value (`SparseKKTSystem`,
+`CHOLMODSolver`, `KrylovIterator`, `LDL`); a call to a type of MadNLP with values as arguments,
+which constructs it (`RuizScaler()`, `QualityFunctionUpdate{Float64}(sigma_max=2,mu_min=1e-11)`);
+or a bare word of letters, digits, `_`, `.` and `-` for an option whose declared type is a string,
+a character or a symbol. Commas inside parentheses belong to the call. For example, MadNLP's GPU
+preset on the host:
+
+    --options=kkt_system=SparseKKTSystem,linear_solver=CHOLMODSolver,cholmod_algorithm=LDL,cholmod_dbound=1e-10,kkt_scaler=RuizScaler(),dual_shift=1e-10,iterator=KrylovIterator,barrier=QualityFunctionUpdate{Float64}(sigma_max=2,mu_min=1e-11),slack_reset=true
+
+Unknown option names are refused, and
 so are the options that name files. The results go under the configuration
 `custom-<8 hex digits>`, from the options in sorted order, and the metadata records them as
 `custom_options`. `configs.toml` lists the configuration names per device, the option names and

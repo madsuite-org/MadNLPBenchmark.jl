@@ -59,7 +59,7 @@ if [ "$cmd" = new ]; then
     elif [[ $what =~ ^[0-9a-f]{40}$ ]]; then target="\"commit\": \"$what\""
     elif [[ $what =~ ^[A-Za-z0-9._/-]+$ ]]; then target="\"branch\": \"$what\""
     else echo "publish: give master, a pull request number, a branch or a commit" >&2; exit 2; fi
-    [[ $config =~ ^[a-z0-9_]+$ && $devices =~ ^(cpu|cuda|cpu,cuda)$ && $options =~ ^[A-Za-z0-9_.,=+-]*$ && $sets =~ ^[a-z,]*$
+    [[ $config =~ ^[a-z0-9_]+$ && $devices =~ ^(cpu|cuda|cpu,cuda)$ && $options =~ ^[A-Za-z0-9_.,=+(){}-]*$ && $sets =~ ^[a-z,]*$
        && $subset =~ ^[a-z0-9=+,-]*$ && $instances =~ ^[A-Za-z0-9_.+,-]*$ ]] ||
         { echo "publish: bad --config, --devices, --options, --sets, --subset or --instances" >&2; exit 2; }
     [ -n "$note" ] || { echo "publish: give --note: what the job is for" >&2; exit 2; }
