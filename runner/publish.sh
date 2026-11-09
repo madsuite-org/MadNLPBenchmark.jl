@@ -127,6 +127,14 @@ send() {   # state
     [[ $out == *'"cancel": true'* ]]
 }
 
+# setting up takes from seconds to half an hour (cloning, installing, precompiling, or waiting for
+# another node doing it): say so to the website meanwhile, with the log, so that the job's nodes and
+# what they are doing show from the start
+( while :; do send setup >/dev/null; sleep $(( every > 30 ? every : 30 )); done ) &
+beat=$!
+trap 'kill $beat 2>/dev/null; send interrupted; exit 143' TERM INT
+setup_done() { kill $beat 2>/dev/null; wait $beat 2>/dev/null; }
+
 # the commit, set up with this harness, in a folder named by both: the same path on every node and
 # in every later job, so that what Julia compiled for it is found again. The first node sets it up,
 # under a lock; the others wait and use it.
@@ -135,6 +143,7 @@ version=$( (cd "$here" && git rev-parse --short=12 HEAD 2>/dev/null) || find "$h
 src=${src:-$work}
 mkdir -p "$src"
 tree=$(cd "$src" && pwd)/${sha:0:12}-$version
+[ -e "$tree/.ready" ] || echo "publish: setting up $tree (or waiting for the node that is)"
 (
     flock 9 || exit 3
     if [ ! -e "$tree/.ready" ]; then
@@ -144,7 +153,7 @@ tree=$(cd "$src" && pwd)/${sha:0:12}-$version
         (cd "$tree/harness" && julia --startup-file=no setup.jl "$tree/madnlp" ${hsl:+--hsl=$hsl}) || exit 4
         touch "$tree/.ready"
     fi
-) 9> "$tree.lock" || { send failed; exit 4; }
+) 9> "$tree.lock" || { setup_done; send failed; exit 4; }
 cd "$tree/harness"
 # Julia compiles packages for the processor it runs on, so nodes of different processors sharing a
 # depot would keep recompiling over each other: each kind of processor has a depot of its own in
@@ -152,10 +161,12 @@ cd "$tree/harness"
 cpu=$(sed -n 's/^model name[[:space:]]*: //p' /proc/cpuinfo | head -1 | tr -c 'A-Za-z0-9\n' '_' | tr -s '_' | cut -c1-60)
 mkdir -p "$depot/by-cpu/${cpu:-unknown}"
 export JULIA_DEPOT_PATH="$(readlink -f "$depot/by-cpu/${cpu:-unknown}"):$(readlink -f "$depot")"
+echo "publish: precompiling for $cpu (or waiting for the node that is)"
 (
     flock 9 || exit 3
     julia --startup-file=no --project=. -e 'using Pkg; Pkg.precompile()' || exit 4
-) 9> "$depot/by-cpu/${cpu:-unknown}.lock" || { send failed; exit 4; }
+) 9> "$depot/by-cpu/${cpu:-unknown}.lock" || { setup_done; send failed; exit 4; }
+setup_done
 export BENCHMARK_CLAIM=$api/claim BENCHMARK_AUTH=$auth BENCHMARK_NODE=$node
 julia --startup-file=no --project=. run.jl "${sets:-acopf,cops,mittelmann,cutest}" --device="$devices" --config="$config" \
     ${options:+"--options=$options"} ${only:+"--only=$only"} --root="$work/results" < /dev/null &
