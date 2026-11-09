@@ -191,7 +191,7 @@ report, which appears on its dashboard like any other job. Two steps:
    `BENCHMARK_TOKEN`), and writes a *job file* holding the job's number and its own token.
 
    ```sh
-   runner/publish.sh new master --devices=cuda --options=tol=1e-6 --sets=acopf,cops
+   runner/publish.sh new master --note="tolerance 1e-6 on GPU" --devices=cuda --options=tol=1e-6 --sets=acopf,cops
    # job 57: <commit>, cuda, default, tol=1e-6
    # report: https://benchmark.madsuite.org/madnlp/run-x57-<commit>/
    # job file: ./benchmark-job-57
@@ -218,7 +218,8 @@ Without a checkout, `curl -fsSL https://benchmark.madsuite.org/queue/run.sh | ba
 
 A typical request is "benchmark this pull request with these options". From the desktop:
 
-1. Create the job(s) with `runner/publish.sh new`, one per device. Keep the job file private (it is
+1. Create the job(s) with `runner/publish.sh new`, one per device, with a `--note` that says what
+   the job is for (it is shown with the report; a run without one is a mystery to everyone else). Keep the job file private (it is
    mode 600): it lets anyone holding it add results to the job.
 2. Copy the job file to the cluster, and submit several **small** batch jobs that each run
    `runner/publish.sh run`, rather than one large one: small jobs start sooner, and the website
