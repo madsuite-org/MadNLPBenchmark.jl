@@ -107,10 +107,13 @@ end
 
 # MadNLP ignores an option it does not know, so a mistyped option would measure the default
 # under the name of the configuration.
-# Options given as text, `name=value,...`, as from `run.jl --options`. Only literals are read,
-# never evaluated, and no value is quoted: an integer, a float, `true` or `false`, a name in
-# OPTION_VALUES, or a bare word (letters, digits, `_`, `.`, `-`) for an option whose declared type
-# is a string or a character. Options that name files are refused, since the benchmark sets them.
+# Options given as text, `name=value,...`, as from `run.jl --options`. Nothing is evaluated, and no
+# value is quoted. A value is an integer, a float, `true` or `false`; a name MadNLP defines (a type
+# such as `SparseKKTSystem` or `KrylovIterator`, or a value such as `LDL`), or one in OPTION_VALUES;
+# a call to a type of MadNLP with values as arguments, `RuizScaler()` or
+# `QualityFunctionUpdate{Float64}(sigma_max=2,mu_min=1e-11)`, which constructs it; or a bare word
+# (letters, digits, `_`, `.`, `-`) for an option whose declared type is a string, a character or a
+# symbol. Options that name files are refused, since the benchmark sets them.
 const OPTION_VALUES = Dict{String, Function}(
     "SparseKKTSystem" => () -> MadNLP.SparseKKTSystem, "SparseCondensedKKTSystem" => () -> MadNLP.SparseCondensedKKTSystem,
     "SparseUnreducedKKTSystem" => () -> MadNLP.SparseUnreducedKKTSystem,
@@ -141,11 +144,56 @@ function option_type(name::Symbol)
     return Nothing
 end
 
+# The parts of `text` between the commas that are not inside parentheses or braces.
+function split_top(text)
+    parts, depth, start = String[], 0, 1
+    for (i, c) in pairs(text)
+        c in "({" && (depth += 1)
+        c in ")}" && (depth -= 1)
+        depth < 0 && error("unbalanced parentheses in $text")
+        if c == ',' && depth == 0
+            push!(parts, strip(text[start:prevind(text, i)]))
+            start = nextind(text, i)
+        end
+    end
+    depth == 0 || error("unbalanced parentheses in $text")
+    push!(parts, strip(text[start:end]))
+    return filter(!isempty, parts)
+end
+
+# A name MadNLP (or cuMadNLP, where loaded) defines that names a type or a value of an enum, or
+# nothing: never a function, a module or anything else.
+function madnlp_name(word)
+    haskey(OPTION_VALUES, word) && return OPTION_VALUES[word]()
+    occursin(r"^[A-Za-z_][A-Za-z0-9_]*$", word) || return nothing
+    sym = Symbol(word)
+    for m in (MadNLP, (isdefined(Main, :cuMadNLP) ? (Main.cuMadNLP,) : ())...)
+        isdefined(m, sym) || continue
+        v = getfield(m, sym)
+        (v isa Type || v isa Enum) && return v
+    end
+    return nothing
+end
+
 function option_value(name::Symbol, text)
     occursin(r"^-?[0-9]+$", text) && return parse(Int, text)
     occursin(r"^-?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$", text) && return parse(Float64, text)
     text in ("true", "false") && return text == "true"
-    haskey(OPTION_VALUES, text) && return OPTION_VALUES[text]()
+    v = madnlp_name(text)
+    v === nothing || return v
+    # a call to a type of MadNLP: its arguments are values, its keywords name=value
+    call = match(r"^([A-Za-z_][A-Za-z0-9_]*)(?:\{(Float64|Float32)\})?\((.*)\)$", text)
+    if call !== nothing
+        type = madnlp_name(call[1])
+        type isa Type || error("option $name=$text: $(call[1]) is not a type of MadNLP")
+        call[2] === nothing || (type = type{call[2] == "Float64" ? Float64 : Float32})
+        args, kwargs = Any[], Pair{Symbol, Any}[]
+        for part in split_top(call[3])
+            kw = match(r"^([a-z_][A-Za-z0-9_]*)\s*=\s*(.+)$", part)
+            kw === nothing ? push!(args, option_value(name, part)) : push!(kwargs, Symbol(kw[1]) => option_value(Symbol(kw[1]), kw[2]))
+        end
+        return type(args...; kwargs...)
+    end
     if occursin(r"^[A-Za-z0-9_.-]+$", text)
         type = option_type(name)
         type <: AbstractString && return String(text)
@@ -156,7 +204,7 @@ function option_value(name::Symbol, text)
 end
 
 function parse_options(text)
-    pairs = map(split(text, ","; keepempty = false)) do item
+    pairs = map(split_top(text)) do item
         m = match(r"^\s*([a-z_][a-z0-9_]*)\s*=\s*(\S+)\s*$", item)
         m === nothing && error("option $item is not name=value")
         name = Symbol(m[1])
@@ -178,7 +226,7 @@ function custom_options(base, given)
 end
 
 # The same options in one order, which names a configuration: custom-<8 hex digits of its SHA-1>.
-normalized_options(text) = join(sort!(map(strip, split(text, ","; keepempty = false))), ",")
+normalized_options(text) = join(sort!(split_top(text)), ",")
 custom_name(text) = "custom-" * bytes2hex(SHA.sha1(normalized_options(text)))[1:8]
 
 function validate(configs)
