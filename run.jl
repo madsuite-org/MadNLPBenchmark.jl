@@ -9,9 +9,9 @@ using Distributed
 function parse_args(args)
     isempty(args) && error(
         "usage: run.jl <set>[,<set>...] [--config=a,b] [--device=cpu|cuda|cpu,cuda] [--workers=auto|N] [--workers-per-gpu=2] [--root=DIR] [--out=DIR] " *
-            "[--only=case,...] [--tol=1e-8] [--wall=1800] [--cuda-wall=600] [--margin=S] [--status-every=600] [--options=name=value,...] [--no-warmup] [--overwrite] [--verbose]"
+            "[--only=case,...] [--tol=1e-8] [--wall=1800] [--cuda-wall=1800] [--margin=S] [--status-every=600] [--options=name=value,...] [--no-warmup] [--overwrite] [--verbose]"
     )
-    opt = Dict{String, String}("device" => "cpu", "config" => "default", "tol" => "1e-8", "wall" => "1800", "cuda-wall" => "600", "workers" => "auto")
+    opt = Dict{String, String}("device" => "cpu", "config" => "default", "tol" => "1e-8", "wall" => "1800", "cuda-wall" => "1800", "workers" => "auto")
     flags = Set{String}()
     for a in args[(begin + 1):end]
         m = match(r"^--([a-z-]+)(?:=(.*))?$", a)
