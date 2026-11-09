@@ -4,6 +4,7 @@
 
 using SHA
 import FileWatching
+import Krylov   # GMRES refinement (KrylovIterator) on the host, which cuMadNLP loads on a GPU
 using MadNLP, HSL, ExaModels, ExaModelsPower, COPSBenchmark, ExaMittelmann, NLPModels, NLPModelsIpopt
 # CUTEst: the compiled SIF decoders of CUTEst.jl on the host, ExaCUTEst models on a device
 "cutest" in SET_NAMES && (DEVICE == :cuda ? (@eval using ExaCUTEst) : (@eval using CUTEst))

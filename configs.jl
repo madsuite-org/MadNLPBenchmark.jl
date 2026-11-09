@@ -74,6 +74,15 @@ function configs(device::Symbol; hsl::Bool = HSL.LIBHSL_isfunctional())
             CONDENSED..., linear_solver = MadNLP.CHOLMODSolver,
             barrier = MadNLP.QualityFunctionUpdate{Float64}(sigma_max = 2.0, mu_min = 1.0e-3 * 1.0e-8), slack_reset = true,
         ))
+        # all of the GPU preset on the host: the augmented system factorized LDLᵀ with small pivots
+        # bounded (CHOLMOD's dbound, as cuDSS's pivot epsilon), Ruiz scaling, a dual shift, GMRES
+        # refinement, and its barrier rule and slack reset
+        push!(c, "augmented_cholmod_gpu_preset" => (;
+            kkt_system = MadNLP.SparseKKTSystem, linear_solver = MadNLP.CHOLMODSolver,
+            cholmod_algorithm = MadNLP.LDL, cholmod_dbound = 1.0e-10,
+            kkt_scaler = MadNLP.RuizScaler(), dual_shift = 1.0e-10, iterator = MadNLP.KrylovIterator,
+            barrier = MadNLP.QualityFunctionUpdate{Float64}(sigma_max = 2.0, mu_min = 1.0e-3 * 1.0e-8), slack_reset = true,
+        ))
         if hsl   # the registry's HSL_jll carries no solver
             push!(c, "augmented_ma27" => (; linear_solver = MadNLP.Ma27Solver))
             push!(c, "augmented_ma57" => ma57)
