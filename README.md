@@ -191,7 +191,7 @@ then `archive.jl DIR --ipopt-reference`.
 
 Benchmarks run through the website's queue appear there by themselves. Anyone with write access to
 MadNLP.jl can also run one on machines of their own: a workstation, a rented GPU, or nodes of a
-cluster such as ORCD. The website hands out the instances, collects the results and builds the
+cluster. The website hands out the instances, collects the results and builds the
 report, which appears on its dashboard like any other job. Two steps:
 
 1. **Create a job, once.** This fixes what is run: the revision of MadNLP.jl and the configuration,
@@ -222,35 +222,31 @@ report, which appears on its dashboard like any other job. Two steps:
 Without a checkout, `curl -fsSL https://benchmark.madsuite.org/queue/run.sh | bash -s -- new ...` and
 `... | bash -s -- run --job-file=...` do the same.
 
-### For agents: a benchmark on a cluster
+### Several machines on one job
 
-A typical request is "benchmark this pull request with these options". From the desktop:
-
-1. Create the job(s) with `runner/publish.sh new`, one per device, with a `--note` that says what
-   the job is for (it is shown with the report; a run without one is a mystery to everyone else). Keep the job file private (it is
-   mode 600): it lets anyone holding it add results to the job.
-2. Copy the job file to the cluster, and submit several **small** batch jobs that each run
-   `runner/publish.sh run`, rather than one large one: small jobs start sooner, and the website
-   spreads the instances over whichever have started. [`runner/slurm-node.sbatch`](runner/slurm-node.sbatch)
-   is an example for Slurm.
-3. Size each batch job by what the benchmark uses: on the host, `run.jl` starts workers for 75% of
-   the cores the batch job is given; on a GPU, 2 workers per GPU it sees. A node uses only what it is
-   given, and the website does the sharing, so more nodes mean more throughput.
-4. For times you mean to compare, ask for one kind of GPU (`--gres=gpu:h200:1`, say) and one kind of
-   CPU. Nodes of different kinds still give valid solves and iteration counts; the report shows the
-   machine of each instance and marks times that come from different machines.
-5. Preemptible partitions are fine. Use `--requeue`: a node stopped and started again with the same
-   work directory is the same node and carries on, and the instances it held go to the others after 10
-   minutes.
-6. Give all nodes one `--depot` and one `--src` on the cluster's shared file system, and keep them
-   between jobs. The first node of a commit sets it up and compiles it there while the others wait;
-   every other node, and every later job of that commit, reuses what was installed and compiled.
+1. Create one job per device, with a `--note` that says what it is for (it is shown with the
+   report). Keep the job file private (it is mode 600): it lets anyone holding it add results to
+   the job.
+2. Start `runner/publish.sh run` on several **small** machines rather than one large one: the
+   website spreads the instances over whichever have started, and more of them mean more
+   throughput.
+3. A node uses what it is given: on the host, `run.jl` starts workers for 75% of the cores it may
+   use; on a GPU, 2 workers per GPU it sees.
+4. For times you mean to compare, use one kind of GPU and one kind of CPU. Nodes of different kinds
+   still give valid solves and iteration counts; the report shows the machine of each instance and
+   marks times that come from different machines.
+5. A node can be stopped at any time. Started again with the same work directory it is the same
+   node and carries on; the instances a stopped node held go to the others after 10 minutes.
+6. On a shared file system, give all nodes one `--depot` and one `--src`, and keep them between
+   jobs: the first node of a commit sets it up and compiles it there while the others wait, and
+   every other node, and every later job of that commit, reuses it.
 7. Follow the job on the website's dashboard, or with the API: `GET /queue/api/jobs/<number>` (with
    a GitHub token) gives its state and nodes. Cancelling it there stops every node at its next
    request. The job ends when every node still running has finished.
 
 The licensed HSL (`--hsl`, for MA57 on the host) is not public; without it the host uses MUMPS, and
-the report says which. Results from these jobs never count as master's results in comparisons.
+the report says which. A finished job of a commit on master, run over the whole benchmark, counts as
+master's results in other reports' comparisons.
 
 ### Uploading results by hand
 

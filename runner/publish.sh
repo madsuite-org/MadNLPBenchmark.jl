@@ -25,16 +25,16 @@
 # once or later: the website gives each instance to one of them and merges their results into one
 # report. The job file is all a node needs; no GitHub token.
 #
-# Stopping is safe at any time (a batch job preempted, say): the instances a stopped node held go
+# Stopping is safe at any time: the instances a stopped node held go
 # to the others after 10 minutes, and running it again with the same work directory carries on
-# where it left off. The work directory (default ./benchmark-work/job<N>-<batch job or host>) holds
-# the clone, the Julia depot (a few GB) and the node's results. On a cluster, give the nodes one
+# where it left off. The work directory (default ./benchmark-work/job<N>-<host>) holds
+# the clone, the Julia depot (a few GB) and the node's results. On a shared file system, give the nodes one
 # --depot and one --src on a shared file system: the depot holds the installed and compiled
 # packages (and what is compiled, per kind of processor), --src the checkout of each commit set up
 # with this harness, made by the first node while the others wait. Nodes then install once and
 # compile once per kind of processor, and a later job reuses what an earlier one compiled. --hsl is a licensed HSL_jll for
-# MA57 on the host; without it the host uses MUMPS. The node uses what it is given: on a cluster,
-# the batch job's cores, and 2 workers per GPU it sees.
+# MA57 on the host; without it the host uses MUMPS. The node uses what it is given: the cores it
+# may use, and 2 workers per GPU it sees.
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 site=${BENCHMARK_SITE:-https://benchmark.madsuite.org}
@@ -91,7 +91,7 @@ read -r site id jtoken < "$jobfile"
 [[ $id =~ ^[0-9]+$ ]] || { echo "publish: $jobfile is not a job file" >&2; exit 2; }
 [[ $every =~ ^[0-9]+$ ]] && [ "$every" -ge 5 ] || { echo "publish: --every is at least 5 seconds" >&2; exit 2; }
 api=$site/queue/api/jobs/$id
-work=${work:-$PWD/benchmark-work/job$id-${SLURM_JOB_ID:-$(hostname -s)}}
+work=${work:-$PWD/benchmark-work/job$id-$(hostname -s)}
 depot=${depot:-$work/depot}
 mkdir -p "$work/results" "$depot"
 work=$(cd "$work" && pwd)
@@ -196,7 +196,7 @@ export BENCHMARK_CLAIM=$api/claim BENCHMARK_AUTH=$auth BENCHMARK_NODE=$node
 julia --startup-file=no --project=. run.jl "${sets:-acopf,cops,mittelmann,cutest}" --device="$devices" --config="$config" \
     ${options:+"--options=$options"} ${only:+"--only=$only"} --root="$work/results" < /dev/null &
 bench=$!
-# stopped (preempted, cancelled): say so, and keep what there is; running this again carries on
+# stopped (killed, cancelled): say so, and keep what there is; running this again carries on
 trap 'kill $bench 2>/dev/null; wait $bench; send interrupted; exit 143' TERM INT
 while kill -0 $bench 2>/dev/null; do
     sleep "$every" & wait $!
