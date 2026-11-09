@@ -2,14 +2,16 @@
 # Benchmark MadNLP.jl on machines of your own, with the website coordinating them and building the
 # report. Two steps: create a job once, then run it on as many machines as you like.
 #
-#     runner/publish.sh new [master|PR-NUMBER|BRANCH|COMMIT] [--devices=cpu|cuda|cpu,cuda] [--config=NAME]
+#     runner/publish.sh new [master|PR-NUMBER|BRANCH|COMMIT] --note=TEXT [--devices=cpu|cuda|cpu,cuda] [--config=NAME]
 #                           [--options=name=value,...] [--sets=acopf,cops,...] [--subset=TERMS] [--instances=a,b,...|@FILE]
 #                           [--job-file=PATH]
 #     runner/publish.sh run --job-file=PATH [--hsl=PATH] [--work=DIR] [--depot=DIR] [--src=DIR] [--every=SECONDS]
 #
 # `new` asks the website for a job, with a GitHub token of someone with write access to MadNLP.jl
 # (BENCHMARK_TOKEN, or `gh auth token`), and writes the job's number and its own token to the job
-# file (./benchmark-job-<number>, mode 600). The job's settings are fixed there and then. A job can
+# file (./benchmark-job-<number>, mode 600). The job's settings are fixed there and then. --note says
+# what the job is for ("baseline for #712", "test of ..."), shown with its report; it is required, so
+# that every run on the website says why it is there. A job can
 # run over a subset: --subset takes terms that every instance meets, joined by commas (size=small+
 # medium+large, constrained=yes|no, failed=SOURCE, solved=SOURCE, resto=SOURCE, a source being
 # ipopt, the Ipopt reference, or a report such as run-x50-1b00be2e), --instances a list of names
@@ -35,12 +37,12 @@ set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 site=${BENCHMARK_SITE:-https://benchmark.madsuite.org}
 cmd=${1:-}; shift || true
-what=master devices=cpu,cuda config=default options="" sets="" subset="" instances="" jobfile="" hsl="" work="" depot="" src="" every=5
+note="" what=master devices=cpu,cuda config=default options="" sets="" subset="" instances="" jobfile="" hsl="" work="" depot="" src="" every=5
 for a in "$@"; do
     case "$a" in
         --devices=*) devices=${a#*=} ;; --config=*) config=${a#*=} ;; --options=*) options=${a#*=} ;;
         --sets=*) sets=${a#*=} ;; --job-file=*) jobfile=${a#*=} ;; --hsl=*) hsl=$(cd "${a#*=}" && pwd) ;;
-        --subset=*) subset=${a#*=} ;; --instances=@*) instances=$(grep -v '^\s*$' "${a#*=@}" | paste -sd, -) ;; --instances=*) instances=${a#*=} ;;
+        --note=*) note=${a#*=} ;; --subset=*) subset=${a#*=} ;; --instances=@*) instances=$(grep -v '^\s*$' "${a#*=@}" | paste -sd, -) ;; --instances=*) instances=${a#*=} ;;
         --work=*) work=${a#*=} ;; --depot=*) depot=${a#*=} ;; --src=*) src=${a#*=} ;; --every=*) every=${a#*=} ;;
         --*) echo "publish: unknown option $a" >&2; exit 2 ;;
         *) what=$a ;;
@@ -60,9 +62,11 @@ if [ "$cmd" = new ]; then
     [[ $config =~ ^[a-z0-9_]+$ && $devices =~ ^(cpu|cuda|cpu,cuda)$ && $options =~ ^[A-Za-z0-9_.,=+-]*$ && $sets =~ ^[a-z,]*$
        && $subset =~ ^[a-z0-9=+,-]*$ && $instances =~ ^[A-Za-z0-9_.+,-]*$ ]] ||
         { echo "publish: bad --config, --devices, --options, --sets, --subset or --instances" >&2; exit 2; }
+    [ -n "$note" ] || { echo "publish: give --note: what the job is for" >&2; exit 2; }
+    [[ ${#note} -le 200 && $note != *[\"\\]* ]] || { echo "publish: --note is up to 200 characters, without \" or \\" >&2; exit 2; }
     list=""
     [ -n "$instances" ] && list=", \"instances\": [\"${instances//,/\",\"}\"]"
-    body="{\"external\": true, $target, \"devices\": \"$devices\", \"config\": \"$config\", \"options\": \"$options\"${sets:+, \"sets\": \"$sets\"}${subset:+, \"subset\": \"$subset\"}$list}"
+    body="{\"external\": true, $target, \"devices\": \"$devices\", \"config\": \"$config\", \"options\": \"$options\"${sets:+, \"sets\": \"$sets\"}${subset:+, \"subset\": \"$subset\"}$list, \"note\": \"$note\"}"
     out=$(curl -sS -H @<(printf 'Authorization: Bearer %s\n' "$token") -H "Content-Type: application/json" --data-binary "$body" "$site/queue/api/jobs") ||
         { echo "publish: $site cannot be reached" >&2; exit 2; }
     id=$(json_field id <<< "$out") jtoken=$(json_field token <<< "$out")
