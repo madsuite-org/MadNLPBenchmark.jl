@@ -172,6 +172,23 @@ function solve(m, config, kwargs; warmup::Bool = true, guard = f -> f())
     return stats, t_compile, n
 end
 
+# A model whose data is an artifact downloads it the first time it is built, and a server's passing
+# failure (a 5xx of GitHub's) would otherwise make the instance an error: a download that fails is
+# tried again, a little later each time, before the instance counts as not built.
+const DOWNLOAD_TRIES = 4
+function with_retries(f; tries = DOWNLOAD_TRIES, wait = 15.0)
+    for k in 1:tries
+        try
+            return f()
+        catch err
+            message = sprint(showerror, err)
+            (k == tries || !occursin(r"download|artifact|RequestError"i, message)) && rethrow()
+            @warn "a download failed, trying again in $(round(Int, wait * k)) s ($(k) of $(tries - 1)): $(first(message, 200))"
+            sleep(wait * k)
+        end
+    end
+end
+
 """
     solve_case(case, build, configs; backend, options, warmup, prepare, release, reclaim, report)
 
@@ -190,7 +207,7 @@ function solve_case(
         guard = f -> f(), log = config -> "",
     )
     m = try
-        model = build(backend)
+        model = with_retries(() -> build(backend))
         report(dims(model))
         prepare(model)
         model
