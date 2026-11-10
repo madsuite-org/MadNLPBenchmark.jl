@@ -129,3 +129,37 @@ produce reported numbers.
   tar czf results.tar.gz -C results .
   curl -H "$AUTH" --data-binary @results.tar.gz "$API/results?name=my-experiment"
   ```
+
+## Lessons from past runs
+
+Each rule above was learned the hard way. These are the stories behind some of them.
+
+**The job that ran something else.** An experiment was queued with `options`, `harness` and
+`devices`, and the server accepted it. Its answer, though, showed a plain run of `master`: the
+server of that day did not know the new fields and ignored them silently. Reading the job back
+caught it before hours of machine time went to the wrong benchmark. Read the answer of every
+request you send.
+
+**The commit that broke every job.** A branch was committed after a local `setup.jl`, with
+`[sources]` pointing at a worktree on one machine and HSL_jll at a path in one home directory. It
+merged, and from then on every job failed at setup on the server, where those paths do not exist.
+The fix was one file; finding it took a cancelled run and an afternoon. Look at
+`git diff Project.toml` before you commit.
+
+**The rerun that changed nothing.** A failed experiment was fixed and run again into the same
+`--root`. The run finished in seconds and reported the same failures: every instance was already
+in the result file, failures included, so nothing was solved again. Use a fresh root, or
+`--overwrite`.
+
+**The benchmark that measured the wrong solver.** An experiment with GMRES refinement took
+thousands of iterations on a GPU where the same method had solved in thirty on the CPU. The
+algorithm was not at fault: MadNLP's cuDSS wrapper disabled matching, and the solve of the
+indefinite matrix had a backward error near 1e-5. Richardson refinement had hidden this for months,
+because it corrects an inaccurate solve with more steps; GMRES could not. When a result does not
+match what the method should do, measure the pieces (here, `‖Ax − b‖` of one solve against cuDSS
+called directly) before you change the method.
+
+**The failure that was not new.** Rectangular-form ACOPF cases failed in a new configuration, and
+looked like a regression. Master's archived run on the same machine failed them too, and so did
+every pivoting choice on the CPU. Compare with master on the same machine before you call
+something a regression.
