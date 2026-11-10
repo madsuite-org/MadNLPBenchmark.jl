@@ -164,17 +164,22 @@ version=$( (cd "$here" && git rev-parse --short=12 HEAD 2>/dev/null) || find "$h
 src=${src:-$work}
 mkdir -p "$src"
 tree=$(cd "$src" && pwd)/${sha:0:12}-$version
-[ -e "$tree/.ready" ] || echo "publish: setting up $tree (or waiting for the node that is)"
+# whether the tree is set up. On a network file system a node may keep "no such file" for a name it
+# looked up before another node made it, and would then take the finished tree for a broken one and
+# set it up again under the nodes using it; so the lock file says so too, which a node holding the
+# lock reads afresh
+ready() { grep -qx ready "$tree.lock" 2>/dev/null || ls -a "$tree" 2>/dev/null | grep -qx '.ready'; }
+ready || echo "publish: setting up $tree (or waiting for the node that is)"
 (
     flock 9 || exit 3
-    if [ ! -e "$tree/.ready" ]; then
+    if ! ready; then
         rm -rf "$tree" && mkdir -p "$tree" || exit 3
         git clone -q https://github.com/madsuite-org/MadNLP.jl "$tree/madnlp" && git -C "$tree/madnlp" checkout -q --detach "$sha" || exit 3
         cp -a "$here" "$tree/harness" && rm -rf "$tree/harness/.git" "$tree/harness/madnlp" "$tree/harness/.claude" "$tree/harness/results" || exit 3
         (cd "$tree/harness" && julia --startup-file=no setup.jl "$tree/madnlp" ${hsl:+--hsl=$hsl}) || exit 4
-        touch "$tree/.ready"
+        touch "$tree/.ready" && echo ready >> "$tree.lock"
     fi
-) 9> "$tree.lock" || { setup_done; send failed; exit 4; }
+) 9>> "$tree.lock" || { setup_done; send failed; exit 4; }
 cd "$tree/harness"
 # Julia compiles packages for the processor it runs on, so nodes of different processors sharing a
 # depot would keep recompiling over each other: each kind of processor has a depot of its own in
