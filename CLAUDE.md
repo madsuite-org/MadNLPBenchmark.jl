@@ -143,7 +143,7 @@ request you send.
 **The commit that broke every job.** A branch was committed after a local `setup.jl`, with
 `[sources]` pointing at a worktree on one machine and HSL_jll at a path in one home directory. It
 merged, and from then on every job failed at setup on the server, where those paths do not exist.
-The fix was one file; finding it took a cancelled run and an afternoon. Look at
+The fix was one file; finding it took two failed jobs. Look at
 `git diff Project.toml` before you commit.
 
 **The rerun that changed nothing.** A failed experiment was fixed and run again into the same
@@ -154,7 +154,7 @@ in the result file, failures included, so nothing was solved again. Use a fresh 
 **The benchmark that measured the wrong solver.** An experiment with GMRES refinement took
 thousands of iterations on a GPU where the same method had solved in thirty on the CPU. The
 algorithm was not at fault: MadNLP's cuDSS wrapper disabled matching, and the solve of the
-indefinite matrix had a backward error near 1e-5. Richardson refinement had hidden this for months,
+indefinite matrix had a backward error near 1e-5. Richardson refinement had hidden this,
 because it corrects an inaccurate solve with more steps; GMRES could not. When a result does not
 match what the method should do, measure the pieces (here, `‖Ax − b‖` of one solve against cuDSS
 called directly) before you change the method.
