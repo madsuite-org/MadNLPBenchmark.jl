@@ -9,7 +9,7 @@ module MadNLPBenchmark
 
 using MadNLP, NLPModels
 using BenchmarkFormat
-using BenchmarkFormat: KILLED_STATUS, ERROR_STATUS
+using BenchmarkFormat: KILLED_STATUS, ERROR_STATUS, SOLVER_ERROR_STATUS
 using Dates, DelimitedFiles, LinearAlgebra, Printf, TOML
 
 export run_benchmark, solve_case, HSL_VERSION, read_results, summarize
@@ -30,8 +30,7 @@ const HEADER = [
     "viol_eq", "viol_con", "viol_var",
 ]
 
-# Status recorded for an instance whose worker was killed for overrunning the wall limit, and
-# for one that could not be built or whose solve threw. MadNLP checks its wall limit between
+# The statuses the harness records itself are in BenchmarkFormat. MadNLP checks its wall limit between
 # iterations only, so a single long factorization or evaluation can run far past it.
 const T_TOTAL = findfirst(==("t_total"), HEADER)
 
@@ -224,7 +223,7 @@ function solve_case(
                 result_row(case, m, solve(m, config, kwargs; warmup, guard)...)
             catch err
                 @warn "$case [$config]: the solve threw" exception = (err, catch_backtrace())
-                error_row(case, m)
+                failure_row(case, SOLVER_ERROR_STATUS, dims(m))
             end
         end
         report(config => row)

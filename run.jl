@@ -199,8 +199,12 @@ function solve_on(slot, set, case, todo, chosen, options, warmup, limit)
             event = take!(events)
             event === :solve && (state = :solving)
             event === :released && (state = :working)
+            event isa Tuple && (size = event)
             event isa Pair && push!(rows, event)
         end
+        # a worker that died once its model was built failed in the solve (a crash inside a
+        # library, or the system killing it for its memory); before that, the instance was not run
+        status === :died && (status = size == (0, 0, 0, 0) ? MadNLPBenchmark.ERROR_STATUS : MadNLPBenchmark.SOLVER_ERROR_STATUS)
         # a killed worker cannot hand back its token
         state === :solving && slot.token !== nothing && !isready(slot.token) && put!(slot.token, 1)
         restart(slot, chosen, options)
@@ -215,7 +219,7 @@ function solve_on(slot, set, case, todo, chosen, options, warmup, limit)
             if event === :done
                 COMPLETED[] += 1
                 slot.case, slot.state, slot.since = "", :idle, time()
-                failed = any(r -> last_status(r) == MadNLPBenchmark.ERROR_STATUS, rows)
+                failed = any(r -> last_status(r) in (MadNLPBenchmark.ERROR_STATUS, MadNLPBenchmark.SOLVER_ERROR_STATUS), rows)
                 # a device context can be unusable after an error, such as running out of memory
                 if resident_gb(slot.os_pid) > RSS_LIMIT_GB || (failed && DEVICE == :cuda)
                     rmprocs(slot.pid; waitfor = 30)
@@ -244,7 +248,7 @@ function solve_on(slot, set, case, todo, chosen, options, warmup, limit)
             return replace_worker(MadNLPBenchmark.KILLED_STATUS)
         elseif !(slot.pid in workers())   # the worker died on its own: a crash inside a library
             @warn "$case: worker $(slot.pid) died"
-            return replace_worker(MadNLPBenchmark.ERROR_STATUS)
+            return replace_worker(:died)
         else
             sleep(0.2)
         end

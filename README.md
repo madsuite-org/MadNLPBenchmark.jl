@@ -163,7 +163,10 @@ n_backsolve, n_ir, n_obj, n_grad, n_con, n_jac, n_hess, t_total, t_linsolve, t_e
 t_compile, n_solves, viol_eq, viol_con, viol_var`
 
 `status` is MadNLP's status code; `-100` marks an instance whose worker was killed at the wall
-limit, and `-101` one whose model could not be built or whose solve threw.
+limit or for its memory, `-101` one that could not be run (its model could not be built, or the
+worker failed before solving it), and `-102` one whose model was built but whose solve threw or
+whose worker died during the solve (a crash inside a library, or killed for running out of memory).
+`-102` is a failure of the solver; `-100` and `-101` are tried again on another machine.
 
 ## Results and archive
 

@@ -15,10 +15,14 @@ const BENCHMARK_VERSION, HSL_VERSION = let project = TOML.parsefile(joinpath(dir
     project["version"], project["benchmark"]["hsl"]
 end
 
-# Status recorded for an instance whose worker was killed for overrunning the wall limit, and
-# for one that could not be built or whose solve threw.
+# Statuses the harness records itself. KILLED_STATUS: the worker was killed for overrunning the
+# wall limit or for its memory. ERROR_STATUS: the instance could not be run (its model could not be
+# built, or the worker failed before solving it), which says nothing about the solver.
+# SOLVER_ERROR_STATUS: the model was built and the solve threw, or the worker died during it (a crash
+# inside a library, or killed by the system for running out of memory): a failure of the solver.
 const KILLED_STATUS = -100
 const ERROR_STATUS = -101
+const SOLVER_ERROR_STATUS = -102
 
 # The status codes of MadNLP that count as solved.
 const SOLVE_SUCCEEDED = 1
