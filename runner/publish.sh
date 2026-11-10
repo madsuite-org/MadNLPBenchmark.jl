@@ -180,6 +180,10 @@ cd "$tree/harness"
 # depot would keep recompiling over each other: each kind of processor has a depot of its own in
 # front of the shared one, for what it compiles, and compiles once, one node at a time.
 cpu=$(sed -n 's/^model name[[:space:]]*: //p' /proc/cpuinfo | head -1 | tr -c 'A-Za-z0-9\n' '_' | tr -s '_' | cut -c1-60)
+# and a GPU job's has its own too: CUDA's packages compiled on a machine without a GPU driver (a CPU
+# node of the same processor) record that there is none, and a GPU node loading them then finds no
+# CUDA runtime
+[ "$devices" = cpu ] || cpu="${cpu:-unknown}-gpu"
 mkdir -p "$depot/by-cpu/${cpu:-unknown}"
 export JULIA_DEPOT_PATH="$(readlink -f "$depot/by-cpu/${cpu:-unknown}"):$(readlink -f "$depot")"
 echo "publish: precompiling for $cpu (or waiting for the node that is)"
