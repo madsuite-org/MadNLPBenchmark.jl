@@ -125,6 +125,7 @@ send() {   # state
     local out
     out=$(curl -sS -m 300 -H @"$auth" --data-binary @"$work/.send.tar.gz" "$api/files?node=$node&state=$1&host=$host") || return 0
     if [[ $out == *'"cancel": false'* || $out == *'"cancel": true'* ]]; then
+        taken=1
         mv "$next" "$marker"
     else
         echo "publish: the website did not take the files: $(head -c 300 <<< "$out")"
@@ -139,6 +140,21 @@ send() {   # state
 beat=$!
 trap 'kill $beat 2>/dev/null; send interrupted; exit 143' TERM INT
 setup_done() { kill $beat 2>/dev/null; wait $beat 2>/dev/null; }
+
+# the last results of a node that is done: sent again while the website does not take them (it may
+# be busy, a 502 from its proxy), as nothing is sent after them; still not taken, they stay in the
+# work directory, and running the node again with it sends them
+send_last() {   # state
+    local i
+    for i in 1 2 3 4 5 6; do
+        taken=0
+        send "$1" >/dev/null
+        [ "$taken" = 1 ] && return 0
+        echo "publish: the website did not take the last results; sending them again in $((20 * i)) s"
+        sleep $((20 * i))
+    done
+    echo "publish: the last results could not be sent; they are in $work/results"
+}
 
 # the commit, set up with this harness, in a folder named by both: the same path on every node and
 # in every later job, so that what Julia compiled for it is found again. The first node sets it up,
@@ -181,10 +197,10 @@ trap 'kill $bench 2>/dev/null; wait $bench; send interrupted; exit 143' TERM INT
 while kill -0 $bench 2>/dev/null; do
     sleep "$every" & wait $!
     if kill -0 $bench 2>/dev/null && send running; then
-        echo "publish: job $id was cancelled"; kill $bench; wait $bench; send cancelled; exit 0
+        echo "publish: job $id was cancelled"; kill $bench; wait $bench; send_last cancelled; exit 0
     fi
 done
 wait $bench; rc=$?
-if [ $rc -eq 0 ]; then send finished; else send failed; fi
+if [ $rc -eq 0 ]; then send_last finished; else send_last failed; fi
 echo "publish: node $node done ($rc), $(json_field report <<< "$spec")"
 exit $rc
