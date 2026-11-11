@@ -201,15 +201,30 @@ export BENCHMARK_CLAIM=$api/claim BENCHMARK_AUTH=$auth BENCHMARK_NODE=$node
 julia --startup-file=no --project=. run.jl "${sets:-acopf,cops,mittelmann,cutest}" --device="$devices" --config="$config" \
     ${options:+"--options=$options"} ${only:+"--only=$only"} --root="$work/results" < /dev/null &
 bench=$!
+# the ends of the logs being written, every 3 s, for the website to show them as they come: the
+# solver logs written to in the last 15 s and this node's own log; results go with `send`
+stream() {
+    local s=$work/.stream
+    rm -rf "$s" && mkdir -p "$s"
+    (cd "$work/results" && find . -path '*/logs/*' -name '*.txt' -mmin -0.25 2>/dev/null | head -50) | while read -r f; do
+        mkdir -p "$s/$(dirname "$f")" && tail -c 16000 "$work/results/$f" > "$s/$f"
+    done
+    tail -c 16000 "$log" > "$s/job.log"
+    tar czf "$work/.stream.tar.gz" -C "$s" . 2>/dev/null &&
+        curl -sS -m 10 -o /dev/null -H @"$auth" --data-binary @"$work/.stream.tar.gz" "$api/stream?node=$node" 2>/dev/null
+}
+( while kill -0 $bench 2>/dev/null; do stream; sleep 3; done ) &
+streamer=$!
 # stopped (killed, cancelled): say so, and keep what there is; running this again carries on
-trap 'kill $bench 2>/dev/null; wait $bench; send interrupted; exit 143' TERM INT
+trap 'kill $streamer $bench 2>/dev/null; wait $bench; send interrupted; exit 143' TERM INT
 while kill -0 $bench 2>/dev/null; do
     sleep "$every" & wait $!
     if kill -0 $bench 2>/dev/null && send running; then
-        echo "publish: job $id was cancelled"; kill $bench; wait $bench; send_last cancelled; exit 0
+        echo "publish: job $id was cancelled"; kill $streamer $bench 2>/dev/null; wait $bench; send_last cancelled; exit 0
     fi
 done
 wait $bench; rc=$?
+kill $streamer 2>/dev/null
 if [ $rc -eq 0 ]; then send_last finished; else send_last failed; fi
 echo "publish: node $node done ($rc), $(json_field report <<< "$spec")"
 exit $rc
