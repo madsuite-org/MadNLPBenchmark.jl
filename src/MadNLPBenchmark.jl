@@ -12,6 +12,24 @@ using BenchmarkFormat
 using BenchmarkFormat: KILLED_STATUS, ERROR_STATUS
 using Dates, DelimitedFiles, LinearAlgebra, Printf, TOML
 
+# A MadNLP callback, after every iteration, that writes the solver's log file out at most every two
+# seconds and lets the solve go on. Only where this MadNLP has user callbacks (it has had them since
+# its split into MadCore).
+const FLUSHING = isdefined(MadNLP, :MadCore) && isdefined(MadNLP.MadCore, :AbstractUserCallback) && isdefined(MadNLP.MadCore, :get_file)
+@static if FLUSHING
+    struct FlushLog <: MadNLP.MadCore.AbstractUserCallback
+        last::Base.RefValue{Float64}
+    end
+    function (cb::FlushLog)(solver, _)
+        if time() - cb.last[] > 2
+            file = MadNLP.MadCore.get_file(isdefined(MadNLP.MadCore, :get_logger) ? MadNLP.MadCore.get_logger(solver) : solver.logger)
+            file === nothing || flush(file)
+            cb.last[] = time()
+        end
+        return true
+    end
+end
+
 export run_benchmark, solve_case, HSL_VERSION, read_results, summarize
 
 "The columns of a result file, in order."
@@ -220,7 +238,13 @@ function solve_case(
             error_row(case, m)
         else
             try
-                kwargs = (; options..., opts..., output_file = log(config))
+                file = log(config)
+                kwargs = (; options..., opts..., output_file = file)
+                # the solver log reaches the disk as the solve goes, for the website to show it live
+                # (MadNLP writes it buffered); not where the options set a callback of their own
+                if !isempty(file) && FLUSHING && !haskey(kwargs, :intermediate_callback)
+                    kwargs = (; kwargs..., intermediate_callback = FlushLog(Ref(time())))
+                end
                 result_row(case, m, solve(m, config, kwargs; warmup, guard)...)
             catch err
                 @warn "$case [$config]: the solve threw" exception = (err, catch_backtrace())
