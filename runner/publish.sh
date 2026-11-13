@@ -2,10 +2,16 @@
 # Benchmark MadNLP.jl on machines of your own, with the website coordinating them and building the
 # report. Two steps: create a job once, then run it on as many machines as you like.
 #
-#     runner/publish.sh new [master|PR-NUMBER|BRANCH|COMMIT] --note=TEXT [--devices=cpu|cuda|cpu,cuda] [--config=NAME]
+#     runner/publish.sh new [master|PR-NUMBER|BRANCH|COMMIT|--local=PATH] --note=TEXT [--devices=cpu|cuda|cpu,cuda] [--config=NAME]
 #                           [--options=name=value,...] [--sets=acopf,cops,...] [--subset=TERMS] [--instances=a,b,...|@FILE]
 #                           [--label=TEXT] [--job-file=PATH]
-#     runner/publish.sh run --job-file=PATH [--hsl=PATH] [--work=DIR] [--depot=DIR] [--src=DIR] [--every=SECONDS]
+#     runner/publish.sh run --job-file=PATH [--madnlp=PATH] [--hsl=PATH] [--work=DIR] [--depot=DIR] [--src=DIR] [--every=SECONDS]
+#
+# Local code: `new --local=PATH` makes a job of the checkout of MadNLP.jl at PATH, as it is (its
+# commit, and its uncommitted changes, by a hash), which need not be on GitHub; its nodes run that
+# checkout, `run --madnlp=PATH`, and check it is the same. The website marks such a run as local code
+# (nobody else can reproduce it) and never takes it for a reference. A pull request from a fork is
+# fetched from MadNLP.jl itself (refs/pull/<N>/head), and marked as a fork's.
 #
 # `new` asks the website for a job, with a GitHub token of someone with write access to MadNLP.jl
 # (BENCHMARK_TOKEN, or `gh auth token`), and writes the job's number and its own token to the job
@@ -39,13 +45,13 @@ set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 site=${BENCHMARK_SITE:-https://benchmark.madsuite.org}
 cmd=${1:-}; shift || true
-note="" label="" what=master devices=cpu,cuda config=default options="" sets="" subset="" instances="" jobfile="" hsl="" work="" depot="" src="" every=5
+note="" label="" local="" madnlp="" what=master devices=cpu,cuda config=default options="" sets="" subset="" instances="" jobfile="" hsl="" work="" depot="" src="" every=5
 for a in "$@"; do
     case "$a" in
         --devices=*) devices=${a#*=} ;; --config=*) config=${a#*=} ;; --options=*) options=${a#*=} ;;
         --sets=*) sets=${a#*=} ;; --job-file=*) jobfile=${a#*=} ;; --hsl=*) hsl=$(cd "${a#*=}" && pwd) ;;
         --note=*) note=${a#*=} ;; --label=*) label=${a#*=} ;; --subset=*) subset=${a#*=} ;; --instances=@*) instances=$(grep -v '^\s*$' "${a#*=@}" | paste -sd, -) ;; --instances=*) instances=${a#*=} ;;
-        --work=*) work=${a#*=} ;; --depot=*) depot=${a#*=} ;; --src=*) src=${a#*=} ;; --every=*) every=${a#*=} ;;
+        --local=*) local=${a#*=} ;; --madnlp=*) madnlp=${a#*=} ;; --work=*) work=${a#*=} ;; --depot=*) depot=${a#*=} ;; --src=*) src=${a#*=} ;; --every=*) every=${a#*=} ;;
         --*) echo "publish: unknown option $a" >&2; exit 2 ;;
         *) what=$a ;;
     esac
@@ -53,10 +59,25 @@ done
 # a field of the website's JSON answers: a string, or a number
 json_field() { local t; t=$(cat); sed -n "s/.*\"$1\": *\"\([^\"]*\)\".*/\1/p" <<< "$t" | head -1 | grep . || sed -n "s/.*\"$1\": *\([0-9][0-9]*\).*/\1/p" <<< "$t" | head -1; }
 
+local_changes() {   # checkout
+    local d
+    d=$(cd "$1" && { git diff HEAD --binary; git ls-files --others --exclude-standard -z | xargs -0 -r sha1sum; } 2>/dev/null)
+    [ -z "$d" ] || sha1sum <<< "$d" | cut -c1-40
+}
+
 if [ "$cmd" = new ]; then
     token=${BENCHMARK_TOKEN:-$(gh auth token 2>/dev/null)}
     [ -n "$token" ] || { echo "publish: no GitHub token; set BENCHMARK_TOKEN or sign in with gh" >&2; exit 2; }
-    if [ "$what" = master ]; then target='"master": true'
+    # the uncommitted changes of a checkout, as one hash ("" without any): tracked files against its
+    # commit, and the untracked ones
+    if [ -n "$local" ]; then
+        git -C "$local" rev-parse --verify -q HEAD >/dev/null || { echo "publish: $local is not a git checkout" >&2; exit 2; }
+        lsha=$(git -C "$local" rev-parse HEAD)
+        lchanges=$(local_changes "$local")
+        lname=$(git -C "$local" rev-parse --abbrev-ref HEAD | tr -c 'A-Za-z0-9._/+-' '-' | cut -c1-60)
+        target="\"local\": {\"commit\": \"$lsha\", \"changes\": \"$lchanges\", \"name\": \"${lname%-}\"}"
+        echo "publish: local code at $lsha${lchanges:+ with uncommitted changes}: only machines with this checkout can run it"
+    elif [ "$what" = master ]; then target='"master": true'
     elif [[ $what =~ ^#?[0-9]+$ ]]; then target="\"pr\": ${what#\#}"
     elif [[ $what =~ ^[0-9a-f]{40}$ ]]; then target="\"commit\": \"$what\""
     elif [[ $what =~ ^[A-Za-z0-9._/-]+$ ]]; then target="\"branch\": \"$what\""
@@ -111,6 +132,14 @@ sha=$(json_field sha <<< "$spec") state=$(json_field state <<< "$spec")
 [ "$state" = running ] || { echo "publish: job $id is $state"; exit 0; }
 devices=$(json_field devices <<< "$spec") config=$(json_field config <<< "$spec") options=$(json_field options <<< "$spec")
 sets=$(json_field sets <<< "$spec") only=$(json_field only <<< "$spec")
+islocal=$(json_field local <<< "$spec") changes=$(json_field changes <<< "$spec") pull=$(json_field pull <<< "$spec")
+if [ "$islocal" = true ]; then
+    # local code: this machine's checkout, which must be the job's
+    [ -n "$madnlp" ] || { echo "publish: job $id is local code: give --madnlp=PATH, the checkout it was made of" >&2; exit 2; }
+    [ "$(git -C "$madnlp" rev-parse HEAD 2>/dev/null)" = "$sha" ] && [ "$(local_changes "$madnlp")" = "$changes" ] ||
+        { echo "publish: $madnlp is not the code of job $id (its commit $sha${changes:+ with its uncommitted changes})" >&2; exit 2; }
+    madnlp=$(cd "$madnlp" && pwd)
+fi
 echo "publish: job $id node $node on $host, $sha, $devices, $config${options:+, $options}, $(date -u '+%F %T') UTC"
 
 # what changed since the last time, and this node's log; the answer says whether to stop
@@ -163,7 +192,7 @@ export JULIA_DEPOT_PATH="$(readlink -f "$depot")"
 version=$( (cd "$here" && git rev-parse --short=12 HEAD 2>/dev/null) || find "$here" -name '*.jl' -o -name '*.toml' | sort | xargs cat | sha1sum | cut -c1-12)
 src=${src:-$work}
 mkdir -p "$src"
-tree=$(cd "$src" && pwd)/${sha:0:12}-$version
+tree=$(cd "$src" && pwd)/${sha:0:12}${changes:+-local-${changes:0:8}}-$version
 # whether the tree is set up. On a network file system a node may keep "no such file" for a name it
 # looked up before another node made it, and would then take the finished tree for a broken one and
 # set it up again under the nodes using it; so the lock file says so too, which a node holding the
@@ -174,7 +203,14 @@ ready || echo "publish: setting up $tree (or waiting for the node that is)"
     flock 9 || exit 3
     if ! ready; then
         rm -rf "$tree" && mkdir -p "$tree" || exit 3
-        git clone -q https://github.com/madsuite-org/MadNLP.jl "$tree/madnlp" && git -C "$tree/madnlp" checkout -q --detach "$sha" || exit 3
+        if [ "$islocal" = true ]; then
+            cp -a "$madnlp" "$tree/madnlp" || exit 3                   # as it is, uncommitted changes included
+        else
+            git clone -q https://github.com/madsuite-org/MadNLP.jl "$tree/madnlp" || exit 3
+            # a pull request (a fork's too) by the ref GitHub keeps for it in MadNLP.jl
+            [ -n "$pull" ] && { git -C "$tree/madnlp" fetch -q origin "+refs/pull/$pull/head:refs/remotes/origin/pull/$pull" || exit 3; }
+            git -C "$tree/madnlp" checkout -q --detach "$sha" || exit 3
+        fi
         cp -a "$here" "$tree/harness" && rm -rf "$tree/harness/.git" "$tree/harness/madnlp" "$tree/harness/.claude" "$tree/harness/results" || exit 3
         (cd "$tree/harness" && julia --startup-file=no setup.jl "$tree/madnlp" ${hsl:+--hsl=$hsl}) || exit 4
         touch "$tree/.ready" && echo ready >> "$tree.lock"
