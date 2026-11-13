@@ -189,14 +189,17 @@ then `archive.jl DIR --ipopt-reference`.
 
 ## Running on your own machines (clusters included)
 
-Benchmarks run through the website's queue appear there by themselves. Anyone with write access to
-MadNLP.jl can also run one on machines of their own: a workstation, a rented GPU, or nodes of a
-cluster. The website hands out the instances, collects the results and builds the
-report, which appears on its dashboard like any other job. Two steps:
+A benchmark runs on machines its creator provides: a workstation, a rented GPU, or nodes of a
+cluster; the website runs none itself. Any member of madsuite-org, and anyone with write access to
+MadNLP.jl, can create a job. The website hands out the instances, collects the results and builds
+the job's run page; runs are compared in reports, made on the website. How the website works (who
+can use it, runs and reports, its API) is on the website:
+[How it works](https://benchmark.madsuite.org/queue/help). Two steps:
 
 1. **Create a job, once.** This fixes what is run: the revision of MadNLP.jl and the configuration,
-   options, devices and sets. It needs a GitHub token with write access (`gh auth login`, or
-   `BENCHMARK_TOKEN`), and writes a *job file* holding the job's number and its own token.
+   options, devices and instances. It needs a GitHub token of a member of madsuite-org or of
+   someone with write access to MadNLP.jl (`gh auth login`, or `BENCHMARK_TOKEN`), and writes a
+   *job file* holding the job's number and its own token.
 
    ```sh
    runner/publish.sh new master --note="tolerance 1e-6 on GPU" --devices=cuda --options=tol=1e-6 --sets=acopf,cops
@@ -205,8 +208,16 @@ report, which appears on its dashboard like any other job. Two steps:
    # job file: ./benchmark-job-57
    ```
 
-   The revision is `master`, a pull request number, a branch, or a commit. `--devices` is `cpu`,
-   `cuda` or `cpu,cuda`; create CPU and GPU as two jobs, so that each can go where its hardware is.
+   The revision is `master`, a pull request number, a branch, or a commit of madsuite-org/MadNLP.jl
+   (no fork), resolved to a commit when the job is made. `--devices` is `cpu`, `cuda` or
+   `cpu,cuda`; create CPU and GPU as two jobs, so that each can go where its hardware is.
+   `--options=name=value,...` are MadNLP options on top of the default configuration (types,
+   enums and calls such as `RuizScaler()` included). `--note` says what the job is for, `--label`
+   names its column in reports. The instances: `--sets=acopf,cops,...`, and `--subset=TERMS`, all of
+   which an instance meets, joined by commas: `size=small+medium+large`, `constrained=yes|no`,
+   `failed=SOURCE`, `solved=SOURCE`, `resto=SOURCE` (a source being `ipopt` or a run such as
+   `run-x50-1b00be2e`), and `suspects`, what the best configurations tend to fail; or a list,
+   `--instances=a,b,...` or `--instances=@FILE`.
 
 2. **Run it on as many machines as you like**, at once or later, with only the job file:
 
@@ -216,8 +227,11 @@ report, which appears on its dashboard like any other job. Two steps:
 
    Each machine (a *node*) takes the job's settings from the website, sets up that commit, and before
    each instance asks the website whether it is still to do, so no two nodes solve the same one.
-   Every 5 seconds it sends what changed: result rows, its workers' status and its log. The report
-   updates as they arrive, and its workers page shows what every node is solving.
+   Every few seconds (`--every`, 5 by default) it sends what changed: result rows, its workers'
+   status and its log, and every 3 seconds the ends of the logs it is writing. The run's page
+   updates as they arrive, and its workers page shows each node and what it is solving: a node's
+   log, and an instance's solver log, as they are written. An instance that failed for a machine
+   reason (killed, or the worker crashed) is handed out again, twice at most, to another node.
 
 Without a checkout, `curl -fsSL https://benchmark.madsuite.org/queue/run.sh | bash -s -- new ...` and
 `... | bash -s -- run --job-file=...` do the same.
@@ -245,8 +259,7 @@ Without a checkout, `curl -fsSL https://benchmark.madsuite.org/queue/run.sh | ba
    request. The job ends when every node still running has finished.
 
 The licensed HSL (`--hsl`, for MA57 on the host) is not public; without it the host uses MUMPS, and
-the report says which. A finished job of a commit on master, run over the whole benchmark, counts as
-master's results in other reports' comparisons.
+the run's page says which.
 
 ### Uploading results by hand
 
@@ -261,7 +274,5 @@ curl -H "Authorization: Bearer $(gh auth token)" --data-binary @results.tar.gz \
 ```
 
 The answer gives the report's address. The name is lowercase letters, digits and `-`; sending the
-same name again replaces your own upload. An upload is a report of its own and never counts as
-master's results in comparisons. The website's
-[queue documentation](https://github.com/madsuite-org/benchmark-report/blob/main/queue/README.md)
-has the details.
+same name again replaces your own upload. An upload is a run of its own. [How it works](https://benchmark.madsuite.org/queue/help) on the
+website has the rest.
