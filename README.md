@@ -208,8 +208,11 @@ can use it, runs and reports, its API) is on the website:
    # job file: ./benchmark-job-57
    ```
 
-   The revision is `master`, a pull request number, a branch, or a commit of madsuite-org/MadNLP.jl
-   (no fork), resolved to a commit when the job is made. `--devices` is `cpu`, `cuda` or
+   The revision is `master`, a pull request number (a fork's too, fetched from MadNLP.jl as
+   `refs/pull/<N>/head`), a branch, or a commit of madsuite-org/MadNLP.jl, resolved to a commit when
+   the job is made; or `--local=PATH`, a checkout on your machine as it is, uncommitted changes
+   included, which its nodes run with `run --madnlp=PATH` (they check it is the same code). The
+   website marks a fork's run and local code as such, and never takes either for a reference. `--devices` is `cpu`, `cuda` or
    `cpu,cuda`; create CPU and GPU as two jobs, so that each can go where its hardware is.
    `--options=name=value,...` are MadNLP options on top of the default configuration (types,
    enums and calls such as `RuizScaler()` included). `--note` says what the job is for, `--label`
