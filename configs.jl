@@ -98,6 +98,11 @@ function configs(device::Symbol; hsl::Bool = HSL.LIBHSL_isfunctional())
                 cudss_deferred_analysis = true, cudss_refactorization = false, cudss_reanalyze_on_improve = true,
             ),
         )
+        # SparseDirectSolver.jl under ShiftedPreset and AugmentedPreset; each preset sets its own
+        # SDSSolver options (MadNLPCoreGPUExt)
+        sds = cuMadNLP.MadCoreGPU.SDSSolver
+        push!(c, "shifted_sds" => (; linear_solver = sds, preset = MadNLP.ShiftedPreset))
+        push!(c, "augmented_sds" => (; linear_solver = sds, preset = MadNLP.AugmentedPreset))
     end
     # options from the command line, on top of the default configuration
     isdefined(Main, :CUSTOM_OPTIONS) && !isempty(Main.CUSTOM_OPTIONS) &&
