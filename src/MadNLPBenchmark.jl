@@ -46,6 +46,9 @@ const HEADER = [
     # [lvar, uvar]. The solver's primal_feas is the residual of its scaled, relaxed problem,
     # where an equality can sit at the edge of its relaxed bounds under a clean status.
     "viol_eq", "viol_con", "viol_var",
+    # seconds of reordering and symbolic factorization, part of t_linsolve: NaN where the solver does
+    # not time them apart (MadNLP before MadNLPCounters.symbolic_time, Ipopt)
+    "t_symbolic",
 ]
 
 # Status recorded for an instance whose worker was killed for overrunning the wall limit, and
@@ -100,6 +103,7 @@ function result_row(case, m, stats, t_compile, n_solves)
         c.total_time, c.linear_solver_time, c.eval_function_time, c.init_time,
         t_compile, n_solves,
         viol...,
+        hasproperty(c, :symbolic_time) ? c.symbolic_time : NaN,
     ]
 end
 
@@ -314,7 +318,11 @@ function run_benchmark(
             done[config] = Set{String}()
             if !overwrite && isfile(path) && filesize(path) > 0
                 old = readdlm(path, ',', Any)
-                old[1, :] == HEADER || error("$path has different columns; move it away or pass overwrite = true")
+                # a file of fewer columns (an earlier version of this benchmark) is carried on, its
+                # rows given NaN for the columns added since
+                n = size(old, 2)
+                (n <= length(HEADER) && old[1, :] == HEADER[1:n]) || error("$path has different columns; move it away or pass overwrite = true")
+                n < length(HEADER) && (old = [old fill(NaN, size(old, 1), length(HEADER) - n)]; old[1, (n + 1):end] .= HEADER[(n + 1):end])
                 rows[(set, config)] = old
                 union!(done[config], string.(old[2:end, 1]))
             end
