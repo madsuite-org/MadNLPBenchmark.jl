@@ -142,6 +142,7 @@ if [ "$islocal" = true ]; then
 fi
 echo "publish: job $id node $node on $host, $sha, $devices, $config${options:+, $options}, $(date -u '+%F %T') UTC"
 
+
 # what changed since the last time, and this node's log; the answer says whether to stop
 marker=$work/.sent
 send() {   # state
@@ -153,6 +154,7 @@ send() {   # state
     tar czf "$work/.send.tar.gz" -C "$work/results" -T "$list" -C "$work/.log" job.log 2>/dev/null
     local out
     out=$(curl -sS -m 300 -H @"$auth" --data-binary @"$work/.send.tar.gz" "$api/files?node=$node&state=$1&host=$host") || return 0
+    [[ $out == *'"quarantined": true'* ]] && quarantined=1
     if [[ $out == *'"cancel": false'* || $out == *'"cancel": true'* ]]; then
         taken=1
         mv "$next" "$marker"
@@ -161,6 +163,36 @@ send() {   # state
     fi
     [[ $out == *'"cancel": true'* ]]
 }
+
+# a GPU node checks its GPUs before taking any instance: the driver starts (cuInit) and nearly all of
+# each GPU's memory is free, as memory something else holds makes every solve fail. A node that is
+# not fit leaves with EX_TEMPFAIL (75) and takes nothing, so that a batch script can start another.
+if [[ $devices == *cuda* ]]; then
+    fit=$(python3 - <<'PY' 2>&1
+import ctypes, os, sys
+try:
+    cuda = ctypes.CDLL("libcuda.so.1")
+except OSError as err:
+    sys.exit(f"no CUDA driver: {err}")
+if cuda.cuInit(0) != 0:
+    sys.exit(f"cuInit failed: {cuda.cuInit(0)}")
+n = ctypes.c_int()
+cuda.cuDeviceGetCount(ctypes.byref(n))
+for i in range(n.value):
+    dev, ctx = ctypes.c_int(), ctypes.c_void_p()
+    cuda.cuDeviceGet(ctypes.byref(dev), i)
+    if cuda.cuDevicePrimaryCtxRetain(ctypes.byref(ctx), dev) != 0 or cuda.cuCtxSetCurrent(ctx) != 0:
+        sys.exit(f"GPU {i}: no context")
+    free, total = ctypes.c_size_t(), ctypes.c_size_t()
+    cuda.cuMemGetInfo_v2(ctypes.byref(free), ctypes.byref(total))
+    cuda.cuDevicePrimaryCtxRelease(dev)
+    if free.value < 0.9 * total.value:
+        sys.exit(f"GPU {i}: only {free.value / 2**30:.1f} of {total.value / 2**30:.1f} GB free")
+print(f"{n.value} GPU(s) fit")
+PY
+    ) || { echo "publish: this node is not fit for GPU work: $fit; leaving"; send failed >/dev/null; exit 75; }
+    echo "publish: $fit"
+fi
 
 # setting up takes from seconds to half an hour (cloning, installing, precompiling, or waiting for
 # another node doing it): say so to the website meanwhile, with the log, so that the job's nodes and
@@ -256,7 +288,11 @@ trap 'kill $streamer $bench 2>/dev/null; wait $bench; send interrupted; exit 143
 while kill -0 $bench 2>/dev/null; do
     sleep "$every" & wait $!
     if kill -0 $bench 2>/dev/null && send running; then
-        echo "publish: job $id was cancelled"; kill $streamer $bench 2>/dev/null; wait $bench; send_last cancelled; exit 0
+        kill $streamer $bench 2>/dev/null; wait $bench
+        # put aside by the website (machine failures in a row): leave with EX_TEMPFAIL, so that a
+        # batch script can start another node elsewhere; its results are handed out again
+        [ "${quarantined:-0}" = 1 ] && { echo "publish: the website put this node aside (machine failures); leaving"; exit 75; }
+        echo "publish: job $id was cancelled"; send_last cancelled; exit 0
     fi
 done
 wait $bench; rc=$?

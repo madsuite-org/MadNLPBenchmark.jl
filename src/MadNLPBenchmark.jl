@@ -72,6 +72,18 @@ function violation(m, stats)
     return (viol_eq, viol_con, viol_var)
 end
 
+# A solve that stopped before its first iteration because of the machine, not the solver (the GPU's
+# memory taken by something else, a CUDA error): its row says so, an error, which the website hands out
+# again to another node, rather than a failure of the solver.
+const MACHINE_ERRORS = r"Out of GPU memory|out of memory|CUDA error|CUDA_ERROR|CUBLAS_STATUS_ALLOC_FAILED|cuInit"
+function machine_failure(row, log)
+    row[3] == 0 && row[2] < 0 || return row
+    text = isempty(log) || !isfile(log) ? "" : read(log, String)
+    occursin(MACHINE_ERRORS, text) || return row
+    row[2] = ERROR_STATUS
+    return row
+end
+
 function result_row(case, m, stats, t_compile, n_solves)
     c = stats.counters
     viol = try
@@ -245,7 +257,7 @@ function solve_case(
                 if !isempty(file) && FLUSHING && !haskey(kwargs, :intermediate_callback)
                     kwargs = (; kwargs..., intermediate_callback = FlushLog(Ref(time())))
                 end
-                result_row(case, m, solve(m, config, kwargs; warmup, guard)...)
+                machine_failure(result_row(case, m, solve(m, config, kwargs; warmup, guard)...), file)
             catch err
                 @warn "$case [$config]: the solve threw" exception = (err, catch_backtrace())
                 error_row(case, m)
