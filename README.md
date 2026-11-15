@@ -66,8 +66,8 @@ something new.
 | `--out=DIR` | `<root>/<hardware>` | where the result files go; `<hardware>` is the CPU model or the GPU name |
 | `--only=case,...` | all | restrict a set to the named instances |
 | `--tol=1e-8` | `1e-8` | convergence tolerance, and the acceptable tolerance |
-| `--wall=1800` | `1800` | wall limit of a solve on the host, in seconds |
-| `--cuda-wall=1800` | `1800` | the same on a CUDA device |
+| `--wall=600` | `600` | wall limit of a solve on the host, in seconds |
+| `--cuda-wall=600` | `600` | the same on a CUDA device |
 | `--margin=S` | larger of 120 s and 20% of the limit | how far past the limit a worker is killed |
 | `--status-every=600` | `600` | seconds between status reports |
 | `--options=a=1,b=x` | | MadNLP options on top of `default`, run as configuration `custom-<hash>` (see below) |
@@ -126,9 +126,9 @@ that it is up to date.
 
 - **Options.** MadNLP's defaults, apart from what the configuration sets, the tolerance, which
   is also the acceptable tolerance, and the wall limit. A configuration that tunes other options says so in `configs.jl`.
-- **Wall limit:** 1800 s per solve, on the host and on a GPU, for every solver (since benchmark 0.4.0;
-  before, 1800 s on the host and 600 s on a GPU from 0.3.0, and 7200 s on the host). The website holds
-  older results to the same limit, or to their own if lower.
+- **Wall limit:** 600 s per solve, on the host and on a GPU, for every solver (since 2026-11-15; before,
+  1800 s from benchmark 0.4.0, 1800 s on the host and 600 s on a GPU from 0.3.0, and 7200 s on the
+  host). The website holds older results to the same limit: a longer solve counts as stopped at it.
 - **Solved.** An instance is solved if MadNLP returns `SOLVE_SUCCEEDED` or
   `SOLVED_TO_ACCEPTABLE_LEVEL`. Every other exit, including the iteration limit with a good
   last iterate, is a failure.
