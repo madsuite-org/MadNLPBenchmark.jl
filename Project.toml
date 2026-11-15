@@ -20,8 +20,8 @@ ExaModelsSIF = "7f0b2a4e-8c3d-4a9b-9e6f-5b2a1c9d8e01"
 FileWatching = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 HSL = "34c5aeac-e683-54a6-a0e9-6e0fdc586c50"
 HSL_jll = "017b0a0e-03f4-516a-9b91-836bbd1904dd"
-Ipopt_jll = "9cc047cb-c261-5740-88fc-0cf96f7bdcc7"
 Krylov = "ba0b0d4f-ebba-5204-a429-3ac8c609bfb7"
+Ipopt_jll = "9cc047cb-c261-5740-88fc-0cf96f7bdcc7"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 MadCore = "a65213e2-99b2-4dc2-8349-7a266ca2b67f"
 MadCoreGPU = "bc174d20-fbd0-43bd-9ba9-5b5faf23ea88"
@@ -44,11 +44,11 @@ ExaModels = {rev = "4dec7cf9e004fcffcd3ecc8c565a91d8543eaaaf", url = "https://gi
 ExaModelsIO = {rev = "4dec7cf9e004fcffcd3ecc8c565a91d8543eaaaf", subdir = "ExaModelsIO", url = "https://github.com/madsuite-org/ExaModels.jl"}
 ExaModelsPower = {rev = "dbe96005978caee5b63cf1c13722ae2f4b5c67f9", url = "https://github.com/madsuite-org/ExaModelsPower.jl"}
 ExaModelsSIF = {rev = "937915a3118ae06481f4300c4518b662be584f07", url = "https://github.com/madsuite-org/ExaModelsSIF.jl"}
-MadCore = {path = "../../../../MadNLP.jl/.claude/worktrees/pr-731/MadCore"}
-MadCoreGPU = {path = "../../../../MadNLP.jl/.claude/worktrees/pr-731/MadCoreGPU"}
-MadNLP = {path = "../../../../MadNLP.jl/.claude/worktrees/pr-731/MadNLP"}
-MadNLPCore = {path = "../../../../MadNLP.jl/.claude/worktrees/pr-731/MadNLPCore"}
-cuMadNLP = {path = "../../../../MadNLP.jl/.claude/worktrees/pr-731/cuMadNLP"}
+MadCore = {path = "madnlp/MadCore"}
+MadCoreGPU = {path = "madnlp/MadCoreGPU"}
+MadNLP = {path = "madnlp/MadNLP"}
+MadNLPCore = {path = "madnlp/MadNLPCore"}
+cuMadNLP = {path = "madnlp/cuMadNLP"}
 
 [compat]
 CUDA = "~6.5"
@@ -62,8 +62,8 @@ MadNLP = "0.12"
 MadNLPCore = "0.12"
 NLPModels = "0.21.12"
 NLPModelsIpopt = "0.11"
-SparseDirectSolver = "0.4"
 cuMadNLP = "0.12"
+SparseDirectSolver = "0.4"
 
 [benchmark]
 hsl = "2025.7.21"
