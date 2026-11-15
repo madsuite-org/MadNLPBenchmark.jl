@@ -233,6 +233,10 @@ function validate(configs)
     for (name, opts) in configs
         haskey(opts, :solver) && continue   # options of another solver
         known = Set(fieldnames(MadNLP.MadNLPOptions))
+        # the refinement's options (RichardsonOptions; KrylovOptions when the Krylov extension is loaded)
+        union!(known, fieldnames(MadNLP.MadCore.RichardsonOptions))
+        kext = Base.get_extension(MadNLP.MadCore, :MadCoreKrylovExt)
+        kext === nothing || union!(known, fieldnames(kext.KrylovOptions))
         haskey(opts, :linear_solver) && union!(known, fieldnames(typeof(MadNLP.default_options(opts.linear_solver))))
         unknown = setdiff(keys(opts), known)
         isempty(unknown) || error("configuration $name: unknown options $(join(unknown, ", "))")
