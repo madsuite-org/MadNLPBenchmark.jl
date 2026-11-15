@@ -49,6 +49,9 @@ const HEADER = [
     # seconds of reordering and symbolic factorization, part of t_linsolve: NaN where the solver does
     # not time them apart (MadNLP before MadNLPCounters.symbolic_time, Ipopt)
     "t_symbolic",
+    # the structure of the model, from its bounds alone: equality rows (lcon == ucon), the other rows,
+    # and variables fixed by their bounds (lvar == uvar). NaN where the model was not built.
+    "n_eq", "n_ineq", "n_fixed",
 ]
 
 # Status recorded for an instance whose worker was killed for overrunning the wall limit, and
@@ -104,10 +107,22 @@ function result_row(case, m, stats, t_compile, n_solves)
         t_compile, n_solves,
         viol...,
         hasproperty(c, :symbolic_time) ? c.symbolic_time : NaN,
+        structure(m)...,
     ]
 end
 
-error_row(case, m) = failure_row(case, ERROR_STATUS, m === nothing ? (0, 0, 0, 0) : dims(m))
+"`(n_eq, n_ineq, n_fixed)` of a model, from its bounds: what decides how much a condensed KKT system eliminates."
+function structure(m)
+    lcon, ucon = Array(NLPModels.get_lcon(m)), Array(NLPModels.get_ucon(m))
+    n_eq = count(lcon .== ucon)
+    return (n_eq, length(lcon) - n_eq, count(Array(NLPModels.get_lvar(m)) .== Array(NLPModels.get_uvar(m))))
+end
+
+function error_row(case, m)
+    row = failure_row(case, ERROR_STATUS, m === nothing ? (0, 0, 0, 0) : dims(m))
+    m === nothing || (row[(end - 2):end] .= structure(m))
+    return row
+end
 
 "The row of an instance that has no solve to report; `d` is `(nvar, ncon, nnzj, nnzh)`."
 function failure_row(case, status, d)

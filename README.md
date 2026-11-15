@@ -160,7 +160,11 @@ that it is up to date.
 
 `case, status, iters, nvar, ncon, nnzj, nnzh, obj, primal_feas, dual_feas, n_fact,
 n_backsolve, n_ir, n_obj, n_grad, n_con, n_jac, n_hess, t_total, t_linsolve, t_eval, t_init,
-t_compile, n_solves, viol_eq, viol_con, viol_var`
+t_compile, n_solves, viol_eq, viol_con, viol_var, t_symbolic, n_eq, n_ineq, n_fixed`
+
+`n_eq` and `n_ineq` count the equality rows (`lcon == ucon`) and the other rows of the model, and
+`n_fixed` the variables fixed by their bounds: the structure that decides what a condensed KKT
+system eliminates. They are read from the model's bounds, not from the solve.
 
 `status` is MadNLP's status code; `-100` marks an instance whose worker was killed at the wall
 limit, and `-101` one whose model could not be built or whose solve threw.
