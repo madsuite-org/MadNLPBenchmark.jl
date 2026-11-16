@@ -6,6 +6,11 @@
 #                           [--options=name=value,...] [--sets=acopf,cops,...] [--subset=TERMS] [--instances=a,b,...|@FILE]
 #                           [--label=TEXT] [--job-file=PATH]
 #     runner/publish.sh run --job-file=PATH [--madnlp=PATH] [--hsl=PATH] [--work=DIR] [--depot=DIR] [--src=DIR] [--every=SECONDS]
+#     runner/publish.sh setup COMMIT --devices=cpu|cuda [--hsl=PATH] [--work=DIR] [--depot=DIR] [--src=DIR]
+#
+# `setup` does what a node does before it takes instances, for a commit of MadNLP.jl and no job: the
+# tree, the compilation, and loading the packages as a worker does, with the time of each step. It
+# measures, and it prepares the --depot and --src that a job's nodes then find ready.
 #
 # Local code: `new --local=PATH` makes a job of the checkout of MadNLP.jl at PATH, as it is (its
 # commit, and its uncommitted changes, by a hash), which need not be on GitHub; its nodes run that
@@ -106,7 +111,21 @@ if [ "$cmd" = new ]; then
     exit 0
 fi
 
-[ "$cmd" = run ] || { echo "usage: runner/publish.sh new ... | runner/publish.sh run --job-file=PATH (see the top of this file)" >&2; exit 2; }
+[ "$cmd" = run ] || [ "$cmd" = setup ] || { echo "usage: runner/publish.sh new ... | runner/publish.sh run --job-file=PATH | runner/publish.sh setup COMMIT (see the top of this file)" >&2; exit 2; }
+t0=$(date +%s)
+stamp() { echo "publish: [$(( $(date +%s) - t0 )) s] $*"; }
+if [ "$cmd" = setup ]; then
+    [[ $what =~ ^[0-9a-f]{40}$ ]] || { echo "publish: setup takes a commit of MadNLP.jl, 40 hex digits" >&2; exit 2; }
+    [[ $devices = cpu || $devices = cuda ]] || { echo "publish: setup takes --devices=cpu or --devices=cuda" >&2; exit 2; }
+    sha=$what islocal=false changes="" pull="" id=setup
+    work=${work:-$PWD/benchmark-work/setup-${sha:0:12}-$(hostname -s)}
+    depot=${depot:-$work/depot}
+    mkdir -p "$work" "$depot"
+    work=$(cd "$work" && pwd)
+    log=$work/publish.log
+    exec > >(tee -a "$log") 2>&1
+    stamp "setup of $sha for $devices on $(hostname -s), $(date -u '+%F %T') UTC"
+else
 [ -r "$jobfile" ] || { echo "publish: give --job-file, written by runner/publish.sh new" >&2; exit 2; }
 read -r site id jtoken < "$jobfile"
 [[ $id =~ ^[0-9]+$ ]] || { echo "publish: $jobfile is not a job file" >&2; exit 2; }
@@ -141,6 +160,7 @@ if [ "$islocal" = true ]; then
     madnlp=$(cd "$madnlp" && pwd)
 fi
 echo "publish: job $id node $node on $host, $sha, $devices, $config${options:+, $options}, $(date -u '+%F %T') UTC"
+fi
 
 
 # what changed since the last time, and this node's log; the answer says whether to stop
@@ -163,6 +183,9 @@ send() {   # state
     fi
     [[ $out == *'"cancel": true'* ]]
 }
+
+# setup has no job to tell
+[ "$cmd" = setup ] && send() { return 1; }
 
 # a GPU node checks its GPUs before taking any instance: the driver starts (cuInit) and nearly all of
 # each GPU's memory is free, as memory something else holds makes every solve fail. A node that is
@@ -244,26 +267,60 @@ ready || echo "publish: setting up $tree (or waiting for the node that is)"
             git -C "$tree/madnlp" checkout -q --detach "$sha" || exit 3
         fi
         cp -a "$here" "$tree/harness" && rm -rf "$tree/harness/.git" "$tree/harness/madnlp" "$tree/harness/.claude" "$tree/harness/results" || exit 3
-        (cd "$tree/harness" && julia --startup-file=no setup.jl "$tree/madnlp" ${hsl:+--hsl=$hsl}) || exit 4
+        # nothing compiled while installing: everything is compiled below, into the compile depot of
+        # this kind of job (a GPU job's on a GPU node), never into the shared one without a driver
+        (cd "$tree/harness" && JULIA_PKG_PRECOMPILE_AUTO=0 julia --startup-file=no setup.jl "$tree/madnlp" ${hsl:+--hsl=$hsl}) || exit 4
         touch "$tree/.ready" && echo ready >> "$tree.lock"
     fi
 ) 9>> "$tree.lock" || { setup_done; send failed; exit 4; }
+stamp "tree ready: $tree"
 cd "$tree/harness"
 # Julia compiles packages for the processor it runs on, so nodes of different processors sharing a
 # depot would keep recompiling over each other: each kind of processor has a depot of its own in
 # front of the shared one, for what it compiles, and compiles once, one node at a time.
-cpu=$(sed -n 's/^model name[[:space:]]*: //p' /proc/cpuinfo | head -1 | tr -c 'A-Za-z0-9\n' '_' | tr -s '_' | cut -c1-60)
-# and a GPU job's has its own too: CUDA's packages compiled on a machine without a GPU driver (a CPU
-# node of the same processor) record that there is none, and a GPU node loading them then finds no
-# CUDA runtime
-[ "$devices" = cpu ] || cpu="${cpu:-unknown}-gpu"
-mkdir -p "$depot/by-cpu/${cpu:-unknown}"
-export JULIA_DEPOT_PATH="$(readlink -f "$depot/by-cpu/${cpu:-unknown}"):$(readlink -f "$depot")"
-echo "publish: precompiling for $cpu (or waiting for the node that is)"
+key=$(sed -n 's/^model name[[:space:]]*: //p' /proc/cpuinfo | head -1 | tr -c 'A-Za-z0-9\n' '_' | tr -s '_' | cut -c1-60)
+base=$(readlink -f "$depot")
+if [ "$devices" != cpu ]; then
+    # A GPU job's depot sees none of the shared depot's compiled packages, only its packages and
+    # artifacts: CUDA's packages compiled where there was no GPU driver (a CPU node's install or
+    # job) record that there is none, and a GPU node that loads them finds no CUDA runtime (jobs 220,
+    # 230, 251). Measured on an RTX PRO 6000 node: CUDA did not work with the shared depot's compiled
+    # caches in view, and did with them hidden, the packages and artifacts the same.
+    # (a new name, so that no cache compiled against the shared depot's is taken for its own)
+    key="${key:-unknown}-gpu-isolated"
+    base=$base/gpu-view
+    mkdir -p "$base"
+    for x in packages artifacts registries scratchspaces; do
+        [ -e "$base/$x" ] || ln -s "../$x" "$base/$x"
+    done
+fi
+mkdir -p "$depot/by-cpu/${key:-unknown}"
+export JULIA_DEPOT_PATH="$(readlink -f "$depot/by-cpu/${key:-unknown}"):$base"
+echo "publish: precompiling for $key (or waiting for the node that is)"
 (
     flock 9 || exit 3
-    julia --startup-file=no --project=. -e 'using Pkg; Pkg.precompile()' || exit 4
-) 9> "$depot/by-cpu/${cpu:-unknown}.lock" || { setup_done; send failed; exit 4; }
+    # once more after a failure: a node of the same kind may have been writing the same cache (the
+    # "Permission denied" of jobs 242-244), which a second try finds done
+    julia --startup-file=no --project=. -e 'using Pkg; Pkg.precompile()' ||
+        { echo "publish: compiling failed; trying once more"; sleep 30; julia --startup-file=no --project=. -e 'using Pkg; Pkg.precompile()'; } || exit 4
+) 9> "$depot/by-cpu/${key:-unknown}.lock" || { setup_done; send failed; exit 4; }
+stamp "compiled"
+# a GPU node checks that CUDA works before taking any instance: if not, it leaves with EX_TEMPFAIL,
+# for a batch script to start another node elsewhere
+if [ "$devices" != cpu ] && ! julia --startup-file=no --project=. -e 'using CUDA; exit(CUDA.functional() ? 0 : 3)' >/dev/null 2>&1; then
+    echo "publish: CUDA does not work on this node; leaving"; setup_done; send failed >/dev/null; exit 75
+fi
+if [ "$cmd" = setup ]; then
+    # what each worker of a node then pays: loading the packages and the benchmark's session
+    set_names='"acopf","cops","mittelmann"'; [ "$devices" = cpu ] && set_names="$set_names,\"cutest\""
+    julia --startup-file=no --project=. -e "const DEVICE = :$devices; const SET_NAMES = [$set_names]; const CUSTOM_OPTIONS = \"\"; const LOG_DIR = mktempdir();
+        t = time(); include(\"session.jl\"); println(\"publish: session loaded in \", round(time() - t; digits = 1), \" s\");
+        t = time(); warm_up([\"default\"], (; tol = 1e-8, acceptable_tol = 1e-8, max_wall_time = 600.0, print_level = MadNLP.ERROR, rethrow_error = false));
+        println(\"publish: warm-up of the default configuration in \", round(time() - t; digits = 1), \" s\")" || { setup_done; exit 4; }
+    stamp "a worker's session loaded and warmed up"
+    setup_done
+    exit 0
+fi
 setup_done
 export BENCHMARK_CLAIM=$api/claim BENCHMARK_AUTH=$auth BENCHMARK_NODE=$node
 julia --startup-file=no --project=. run.jl "${sets:-acopf,cops,mittelmann,cutest}" --device="$devices" --config="$config" \
