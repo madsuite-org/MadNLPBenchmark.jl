@@ -137,9 +137,9 @@ that it is up to date.
 - **Compilation.** No recorded solve includes compilation. The callbacks of an ExaModel are
   compiled after the model is built, outside the timed region. Instances of one COPS model go
   to one worker, so that they are compiled once. Julia's compilation time is then measured
-  around every solve, and a solve during which Julia compiled is repeated; an
-  instance is also solved a second time when its model type is new to the configuration in
-  that process, because the kernels of a device are compiled outside Julia's timer. The
+  around every solve, and a solve during which Julia compiled is repeated (up to three solves).
+  Where Julia compiled nothing, a first solve takes as long as a second, on the host and on a GPU
+  (measured on new model types after the warm-up), so it is recorded as it is. The
   column `t_compile` is the compilation time of the recorded solve and `n_solves` the number
   of solves it took. A solve that reaches the wall limit is recorded as it is.
 - **Aggregate.** The number of instances solved, and the shifted geometric mean of the solve
