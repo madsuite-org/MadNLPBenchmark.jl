@@ -198,7 +198,14 @@ cluster; the website runs none itself. Any member of madsuite-org, and anyone wi
 MadNLP.jl, can create a job. The website hands out the instances, collects the results and builds
 the job's run page; runs are compared in reports, made on the website. How the website works (who
 can use it, runs and reports, its API) is on the website:
-[How it works](https://benchmark.madsuite.org/queue/help). Two steps:
+[How it works](https://benchmark.madsuite.org/queue/help). Everything goes through `madbench`, the
+website's command line tool:
+
+```sh
+curl -fsSL https://benchmark.madsuite.org/queue/install.sh | sh
+```
+
+Two steps:
 
 1. **Create a job, once.** This fixes what is run: the revision of MadNLP.jl and the configuration,
    options, devices and instances. It needs a GitHub token of a member of madsuite-org or of
@@ -206,16 +213,16 @@ can use it, runs and reports, its API) is on the website:
    *job file* holding the job's number and its own token.
 
    ```sh
-   runner/publish.sh new master --note="tolerance 1e-6 on GPU" --devices=cuda --options=tol=1e-6 --sets=acopf,cops
-   # job 57: <commit>, cuda, default, tol=1e-6
+   madbench new madnlp master --note="tolerance 1e-6 on GPU" --devices=cuda --options=tol=1e-6 --sets=acopf,cops
+   # job 57: madnlp <commit>, cuda, default
    # report: https://benchmark.madsuite.org/madnlp/run-x57-<commit>/
-   # job file: ./benchmark-job-57
+   # (its job file: ~/.config/madbench/job-57)
    ```
 
    The revision is `master`, a pull request number (a fork's too, fetched from MadNLP.jl as
    `refs/pull/<N>/head`), a branch, or a commit of madsuite-org/MadNLP.jl, resolved to a commit when
    the job is made; or `--local=PATH`, a checkout on your machine as it is, uncommitted changes
-   included, which its nodes run with `run --madnlp=PATH` (they check it is the same code). The
+   included, which its nodes run with `madbench up JOB --checkout=PATH` (they check it is the same code). The
    website marks a fork's run and local code as such, and never takes either for a reference. `--devices` is `cpu`, `cuda` or
    `cpu,cuda`; create CPU and GPU as two jobs, so that each can go where its hardware is.
    `--options=name=value,...` are MadNLP options on top of the default configuration (types,
@@ -229,7 +236,8 @@ can use it, runs and reports, its API) is on the website:
 2. **Run it on as many machines as you like**, at once or later, with only the job file:
 
    ```sh
-   runner/publish.sh run --job-file=benchmark-job-57 [--hsl=PATH] [--depot=DIR] [--src=DIR] [--work=DIR]
+   madbench up 57 [-d] [--hsl=PATH] [--depot=DIR] [--src=DIR] [--work=DIR]
+   madbench up 57 --slurm=4 --sbatch="--partition=... --gres=gpu:1 --time=06:00:00"   # as Slurm batch jobs
    ```
 
    Each machine (a *node*) takes the job's settings from the website, sets up that commit, and before
@@ -240,15 +248,18 @@ can use it, runs and reports, its API) is on the website:
    log, and an instance's solver log, as they are written. An instance that failed for a machine
    reason (killed, or the worker crashed) is handed out again, twice at most, to another node.
 
-Without a checkout, `curl -fsSL https://benchmark.madsuite.org/queue/run.sh | bash -s -- new ...` and
-`... | bash -s -- run --job-file=...` do the same.
+`madbench up` clones this harness and runs `runner/publish.sh run` with the job file; the script does
+the same by hand. As Slurm batch jobs, a node preempted carries on where it stopped, one stopped at its
+time limit or failing is replaced, and one unfit for the job (a GPU taken) is replaced on another host;
+`madbench down 57` stops the nodes and batch jobs madbench started. `madbench config depot=... src=...
+hsl=...` keeps the options of `up` (on a cluster, `--depot` and `--src` on its shared file system).
 
 ### Several machines on one job
 
 1. Create one job per device, with a `--note` that says what it is for (it is shown with the
    report). Keep the job file private (it is mode 600): it lets anyone holding it add results to
    the job.
-2. Start `runner/publish.sh run` on several **small** machines rather than one large one: the
+2. Start `madbench up` on several **small** machines rather than one large one: the
    website spreads the instances over whichever have started, and more of them mean more
    throughput.
 3. A node uses what it is given: on the host, `run.jl` starts workers for 75% of the cores it may
@@ -261,9 +272,9 @@ Without a checkout, `curl -fsSL https://benchmark.madsuite.org/queue/run.sh | ba
 6. On a shared file system, give all nodes one `--depot` and one `--src`, and keep them between
    jobs: the first node of a commit sets it up and compiles it there while the others wait, and
    every other node, and every later job of that commit, reuses it.
-7. Follow the job on the website's dashboard, or with the API: `GET /queue/api/jobs/<number>` (with
-   a GitHub token) gives its state and nodes. Cancelling it there stops every node at its next
-   request. The job ends when every node still running has finished.
+7. Follow the job on the website's dashboard, or with `madbench status <number>`. Cancelling it
+   (`madbench cancel <number>`, or on the website) stops every node at its next request. The job ends
+   when every node still running has finished.
 
 The licensed HSL (`--hsl`, for MA57 on the host) is not public; without it the host uses MUMPS, and
 the run's page says which.
@@ -275,9 +286,7 @@ An archive of results made any other way can be uploaded too:
 ```sh
 julia setup.jl ../MadNLP.jl
 julia --project=. run.jl acopf,cops --device=cuda --root=results
-tar czf results.tar.gz -C results .
-curl -H "Authorization: Bearer $(gh auth token)" --data-binary @results.tar.gz \
-     "https://benchmark.madsuite.org/queue/api/results?name=my-experiment"
+madbench upload results my-experiment
 ```
 
 The answer gives the report's address. The name is lowercase letters, digits and `-`; sending the
