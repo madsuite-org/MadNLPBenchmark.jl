@@ -229,6 +229,10 @@ end
 normalized_options(text) = join(sort!(split_top(text)), ",")
 custom_name(text) = "custom-" * bytes2hex(SHA.sha1(normalized_options(text)))[1:8]
 
+"The linear solvers a preset may choose on `device`."
+preset_solvers(device) = device == :cuda ? [cuMadNLP.CUDSSSolver] :
+    [getfield(MadNLP, s) for s in (:MumpsSolver, :CHOLMODSolver, :LDLSolver, :LapackCPUSolver, :UmfpackSolver, :Ma27Solver, :Ma57Solver) if isdefined(MadNLP, s)]
+
 function validate(configs)
     for (name, opts) in configs
         haskey(opts, :solver) && continue   # options of another solver
@@ -238,6 +242,14 @@ function validate(configs)
         kext = Base.get_extension(MadNLP.MadCore, :MadCoreKrylovExt)
         kext === nothing || union!(known, fieldnames(kext.KrylovOptions))
         haskey(opts, :linear_solver) && union!(known, fieldnames(typeof(MadNLP.default_options(opts.linear_solver))))
+        # a preset implies its linear solver (cuDSS on a CUDA device): the options of the solvers a preset
+        # may choose on this device are accepted too, so that `preset=ShiftedPreset,cudss_pivot_epsilon=1e-8`
+        # needs no `linear_solver` (Papaya, jobs 234 and a run of 2026-11-16)
+        if haskey(opts, :preset) && !haskey(opts, :linear_solver)
+            for solver in preset_solvers(DEVICE)
+                union!(known, fieldnames(typeof(MadNLP.default_options(solver))))
+            end
+        end
         unknown = setdiff(keys(opts), known)
         isempty(unknown) || error("configuration $name: unknown options $(join(unknown, ", "))")
     end
