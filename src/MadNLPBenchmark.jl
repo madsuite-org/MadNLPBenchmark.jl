@@ -173,18 +173,10 @@ function physical_cores()
     return isempty(cores) ? nothing : length(cores)
 end
 
-# Model types this process has already solved with a configuration.
-const WARMED = Set{Tuple{String, DataType}}()
-
 # Seconds of Julia compilation tolerated inside a recorded solve, and the most solves of one
 # instance by one configuration.
 const COMPILE_TOLERANCE = 0.01
 const MAX_SOLVES = 3
-
-# A first solve of a model type below this many seconds is repeated in any case: loading device
-# code costs a fraction of a second that Julia's compilation timer does not see, which matters
-# for a short solve and not for a long one.
-const REPEAT_BELOW = 10.0
 
 # One solve, with the time Julia spent compiling during it, in seconds.
 function timed_solve(m, kwargs)
@@ -202,19 +194,17 @@ end
 """
     solve(m, config, kwargs; warmup = true, guard) -> (stats, t_compile, n_solves)
 
-Solve `m` and return the statistics of a solve that carries no compilation. The solve is
-repeated while Julia compiled during it, and once more if it was short and the first time
-`config` met the type of `m` in this process. A solve that reaches the wall limit is kept as
-it is. `t_compile` is the
-compilation time of the solve that is returned.
+Solve `m` and return the statistics of a solve that carries no compilation: the solve is
+repeated while Julia compiled during it. A solve that reaches the wall limit is kept as it is.
+`t_compile` is the compilation time of the solve that is returned. (Until 2026-11, a short first
+solve of a model type was repeated in any case, for device code loaded outside Julia's timer; a
+first and a second solve of new model types after the warm-up took the same time where Julia
+compiled nothing, on the host and on an RTX PRO 6000, so it only doubled most solves.)
 """
 function solve(m, config, kwargs; warmup::Bool = true, guard = f -> f())
-    first_of_type = (config, typeof(m)) ∉ WARMED
     stats, t_compile = guard(() -> timed_solve(m, kwargs))
-    push!(WARMED, (config, typeof(m)))
     n = 1
-    while warmup && n < MAX_SOLVES && stats.status != MadNLP.MAXIMUM_WALLTIME_EXCEEDED &&
-            (t_compile > COMPILE_TOLERANCE || (first_of_type && n == 1 && stats.counters.total_time < REPEAT_BELOW))
+    while warmup && n < MAX_SOLVES && stats.status != MadNLP.MAXIMUM_WALLTIME_EXCEEDED && t_compile > COMPILE_TOLERANCE
         stats, t_compile = guard(() -> timed_solve(m, kwargs))
         n += 1
     end
