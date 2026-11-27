@@ -432,7 +432,7 @@ function madnlp_commit()
     root = joinpath(@__DIR__, "madnlp")
     try
         sha = readchomp(`git -C $root rev-parse HEAD`)
-        return isempty(readchomp(`git -C $root status --porcelain -- MadCore MadCoreGPU MadNLP MadNLPCore cuMadNLP`)) ? sha : sha * "-dirty"
+        return isempty(readchomp(`git -C $root status --porcelain -- MadCore MadCoreGPU MadNLP MadNLPCore MadNLPGPU cuMadNLP`)) ? sha : sha * "-dirty"
     catch
         return "unknown"
     end

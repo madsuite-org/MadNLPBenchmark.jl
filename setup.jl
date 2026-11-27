@@ -17,7 +17,10 @@ function main(args)
     isdir(joinpath(madnlp, "MadNLPCore")) || error("$madnlp is not a checkout of MadNLP.jl")
     # Pkg does not hold a package taken from a path to [compat], so the bounds are checked here
     compat = TOML.parsefile(joinpath(@__DIR__, "Project.toml"))["compat"]
-    for pkg in ("MadCore", "MadCoreGPU", "MadNLP", "MadNLPCore", "cuMadNLP")
+    # MadCoreGPU, a package until MadNLP.jl#753 folded it into MadCore's extensions (2026-11-24): a
+    # checkout without it is set up without it
+    isdir(joinpath(madnlp, "MadCoreGPU")) || drop_package("MadCoreGPU")
+    for pkg in filter(p -> isdir(joinpath(madnlp, p)), ("MadCore", "MadCoreGPU", "MadNLP", "MadNLPCore", "cuMadNLP"))
         version = VersionNumber(TOML.parsefile(joinpath(madnlp, pkg, "Project.toml"))["version"])
         version in Pkg.Versions.semver_spec(compat[pkg]) ||
             error("$pkg $version in $madnlp is outside the [compat] bound $(compat[pkg]) of this benchmark")
@@ -47,11 +50,20 @@ end
 
 # The dependencies MadNLP's packages here take from a repository, `name => {"url", "rev"}`; they
 # must agree with each other.
+"Take `name` out of Project.toml: its [deps], [sources] and [compat] entries."
+function drop_package(name)
+    path = joinpath(@__DIR__, "Project.toml")
+    lines = filter(l -> !startswith(l, name * " = "), readlines(path))
+    write(path, join(lines, "\n") * "\n")
+    println("$name: not in this checkout of MadNLP.jl, set up without it")
+    return
+end
+
 function repository_sources(madnlp)
     ours = ("MadCore", "MadCoreGPU", "MadNLP", "MadNLPCore", "cuMadNLP")
     found = Dict{String, Dict{String, Any}}()
     pinned = get(TOML.parsefile(joinpath(@__DIR__, "Project.toml")), "sources", Dict())
-    for pkg in ours
+    for pkg in filter(p -> isdir(joinpath(madnlp, p)), ours)
         for (name, spec) in get(TOML.parsefile(joinpath(madnlp, pkg, "Project.toml")), "sources", Dict())
             (name in ours || !(spec isa Dict) || !haskey(spec, "url")) && continue
             # the benchmark's own pins (the models, their packages) stay as they are
