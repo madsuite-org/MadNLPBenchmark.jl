@@ -216,11 +216,11 @@ function parse_options(text)
 end
 
 # Options on top of a configuration. Another linear solver drops the options of the configuration's
-# own linear solver, such as those of MA57 in `default` on the host. So does a preset that chooses
-# its own factorization (ShiftedPreset and CondensedPreset: CHOLMOD on the host, cuDSS on a CUDA
-# device), which the configuration's linear solver would otherwise take precedence over.
+# own linear solver, such as those of MA57 in `default` on the host. So does a preset, which chooses
+# its own linear solver (CHOLMOD on the host, cuDSS on a CUDA device), and which the configuration's
+# linear solver would otherwise take precedence over.
 function custom_options(base, given)
-    preset_solver = haskey(given, :preset) && given.preset <: Union{MadNLP.ShiftedPreset, MadNLP.CondensedPreset}
+    preset_solver = haskey(given, :preset) && !haskey(given, :linear_solver)
     if haskey(given, :linear_solver) || preset_solver
         own = Set(fieldnames(MadNLP.MadNLPOptions))
         preset_solver && delete!(own, :linear_solver)
