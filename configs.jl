@@ -100,7 +100,8 @@ function configs(device::Symbol; hsl::Bool = HSL.LIBHSL_isfunctional())
         )
         # SparseDirectSolver.jl under ShiftedPreset and AugmentedPreset; each preset sets its own
         # SDSSolver options (MadNLPCoreGPUExt)
-        sds = cuMadNLP.MadCoreGPU.SDSSolver
+        # MadCore.SDSSolver since MadNLP.jl#753; cuMadNLP.MadCoreGPU.SDSSolver before
+        sds = isdefined(MadNLP.MadCore, :SDSSolver) ? MadNLP.MadCore.SDSSolver : cuMadNLP.MadCoreGPU.SDSSolver
         push!(c, "shifted_sds" => (; linear_solver = sds, preset = MadNLP.ShiftedPreset))
         push!(c, "augmented_sds" => (; linear_solver = sds, preset = MadNLP.AugmentedPreset))
         push!(c, "condensed_sds" => (; linear_solver = sds, preset = MadNLP.CondensedPreset))
