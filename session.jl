@@ -11,6 +11,8 @@ using MadNLP, HSL, ExaModels, ExaModelsPower, COPSBenchmark, ExaMittelmann, NLPM
 DEVICE == :cuda && @eval using CUDA, cuMadNLP
 # MKL PARDISO (PardisoMKLSolver) and AMD (AMDOrdering, for kkt_ordering) on the host
 DEVICE == :cpu && @eval import Pardiso, AMD
+# SparseDirectSolver.jl (SDSSolver) on the host: its KernelAbstractions CPU backend
+DEVICE == :cpu && @eval import SparseDirectSolver
 
 include(joinpath(@__DIR__, "sets.jl"))
 include(joinpath(@__DIR__, "configs.jl"))
