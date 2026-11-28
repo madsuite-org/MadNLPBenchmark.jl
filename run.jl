@@ -61,6 +61,12 @@ end
 const DEVICE = Symbol(OPT["device"])
 # MadNLP options given on the command line, on top of the default configuration (see configs.jl)
 const CUSTOM_OPTIONS = get(OPT, "options", "")
+# A job's own max_wall_time (in --options) is its wall limit: the solver's, the one a worker is
+# killed at (plus the margin), and the one the results are scored with. A site job cannot pass
+# --wall, so this is how it asks for a longer limit than the default.
+let m = match(r"(?:^|,)\s*max_wall_time\s*=\s*([0-9.]+(?:[eE][+-]?[0-9]+)?)\s*(?:,|$)", CUSTOM_OPTIONS)
+    m === nothing || (OPT["wall"] = OPT["cuda-wall"] = m.captures[1])
+end
 DEVICE in (:cpu, :cuda) || error("--device is cpu or cuda")
 
 include(joinpath(@__DIR__, "session.jl"))
