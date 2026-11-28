@@ -46,6 +46,7 @@ ExaModels = {rev = "4dec7cf9e004fcffcd3ecc8c565a91d8543eaaaf", url = "https://gi
 ExaModelsIO = {rev = "4dec7cf9e004fcffcd3ecc8c565a91d8543eaaaf", subdir = "ExaModelsIO", url = "https://github.com/madsuite-org/ExaModels.jl"}
 ExaModelsPower = {rev = "dbe96005978caee5b63cf1c13722ae2f4b5c67f9", url = "https://github.com/madsuite-org/ExaModelsPower.jl"}
 ExaModelsSIF = {rev = "937915a3118ae06481f4300c4518b662be584f07", url = "https://github.com/madsuite-org/ExaModelsSIF.jl"}
+SparseDirectSolver = {rev = "f156dcd4b5b0aeb058bce30187139ed5794a9779", url = "https://github.com/exanauts/SparseDirectSolver.jl"}
 MadCore = {path = "madnlp/MadCore"}
 MadCoreGPU = {path = "madnlp/MadCoreGPU"}
 MadNLP = {path = "madnlp/MadNLP"}
