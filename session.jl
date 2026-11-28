@@ -9,8 +9,8 @@ using MadNLP, HSL, ExaModels, ExaModelsPower, COPSBenchmark, ExaMittelmann, NLPM
 # CUTEst: the compiled SIF decoders of CUTEst.jl on the host, ExaCUTEst models on a device
 "cutest" in SET_NAMES && (DEVICE == :cuda ? (@eval using ExaCUTEst) : (@eval using CUTEst))
 DEVICE == :cuda && @eval using CUDA, cuMadNLP
-# MKL PARDISO (PardisoMKLSolver) on the host
-DEVICE == :cpu && @eval import Pardiso
+# MKL PARDISO (PardisoMKLSolver) and AMD (AMDOrdering, for kkt_ordering) on the host
+DEVICE == :cpu && @eval import Pardiso, AMD
 
 include(joinpath(@__DIR__, "sets.jl"))
 include(joinpath(@__DIR__, "configs.jl"))

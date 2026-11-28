@@ -3,6 +3,7 @@ uuid = "dabdbe9e-1875-4984-9f44-02ea575dbdb4"
 version = "0.4.0"
 
 [deps]
+AMD = "14f7f29c-3bd6-536c-9a0b-7339e30b5a3e"
 BenchmarkFormat = "6d1f3b8e-42a7-4e1c-9a55-0f0f4c1d7e21"
 COPSBenchmark = "3c263af4-7bba-497b-afe4-00c59a0a48a5"
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
@@ -51,6 +52,7 @@ MadNLPCore = {path = "madnlp/MadNLPCore"}
 cuMadNLP = {path = "madnlp/cuMadNLP"}
 
 [compat]
+AMD = "0.5"
 CUDA = "~6.5"
 CUDSS = "~1.0"
 CUTEst = "~1.3"
