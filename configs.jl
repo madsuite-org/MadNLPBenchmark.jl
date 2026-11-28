@@ -120,6 +120,7 @@ const OPTION_VALUES = Dict{String, Function}(
     "MumpsSolver" => () -> MadNLP.MumpsSolver, "CHOLMODSolver" => () -> MadNLP.CHOLMODSolver,
     "Ma27Solver" => () -> MadNLP.Ma27Solver, "Ma57Solver" => () -> MadNLP.Ma57Solver,
     "CUDSSSolver" => () -> cuMadNLP.CUDSSSolver,
+    "SDSSolver" => () -> MadNLP.SDSSolver,
     "RelaxEquality" => () -> MadNLP.RelaxEquality, "EnforceEquality" => () -> MadNLP.EnforceEquality,
     "RelaxBound" => () -> MadNLP.RelaxBound, "MakeParameter" => () -> MadNLP.MakeParameter,
     "DualInitializeSetZero" => () -> MadNLP.DualInitializeSetZero,
